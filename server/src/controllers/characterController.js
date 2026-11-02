@@ -1,7 +1,7 @@
 import Character from '../models/Character.js';
 import { HttpError, asyncHandler } from '../middleware/errorHandler.js';
 import { filterProfanity } from '../utils/profanity.js';
-import { broadcastAppearance } from '../sockets/index.js';
+import { broadcastAppearance } from '../realtime/notify.js';
 
 export const getCharacter = asyncHandler(async (req, res) => {
   const character = await Character.findOne({ userId: req.userId });
@@ -24,10 +24,14 @@ export const upsertCharacter = asyncHandler(async (req, res) => {
   character.skinColor = skinColor;
   character.hair = { style: hair.style, color: hair.color };
   character.outfit = { style: outfit.style, top: outfit.top, bottom: outfit.bottom, shoes: outfit.shoes };
+  // Phụ kiện chỉ đeo được khi có trong túi đồ
+  if ('accessory' in req.body) {
+    const acc = req.body.accessory;
+    if (acc && !character.hasItem(acc)) throw new HttpError(400, 'Bạn chưa sở hữu phụ kiện này');
+    character.accessory = acc || null;
+  }
   await character.save();
 
-  // Đồng bộ ngoại hình mới cho mọi người chơi đang online
   broadcastAppearance(req.userId, character.appearance());
-
   res.status(created ? 201 : 200).json({ character: character.toPublic() });
 });

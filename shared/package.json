@@ -1,0 +1,6 @@
+{
+  "name": "gym-online-shared",
+  "private": true,
+  "type": "module",
+  "description": "Dữ liệu dùng chung client + server: cấu hình máy tập, hằng số, giao thức"
+}

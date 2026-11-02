@@ -4,10 +4,10 @@ import { ANIMS, ANIM_PROPS, BASE_POSE, EMOTES, HIPS } from './animations.js';
 
 /**
  * Nhân vật chibi tròn tròn, lùn lùn: đầu to, thân tròn như quả trứng, tay chân ngắn có khớp.
- * Cấu trúc khớp: root → hips → (spine → neck/head, vai → khuỷu → bàn tay) + (hông → gối → bàn chân)
+ * Cấu trúc khớp: root → model → hips → (spine → neck/head, vai → khuỷu → bàn tay) + (hông → gối → bàn chân)
+ * LOD: 0 đầy đủ | 1 giảm (cập nhật khớp thưa, không đổ bóng) | 2 hình nộm 3 khối | 3 ẩn
  */
 
-// Geometry dùng chung cho mọi nhân vật
 const G = {
   head: new THREE.SphereGeometry(0.4, 32, 24),
   body: new THREE.SphereGeometry(0.3, 28, 20),
@@ -30,6 +30,10 @@ const G = {
   bead: new THREE.SphereGeometry(0.03, 8, 6),
   blob: new THREE.CircleGeometry(0.42, 24),
   drop: new THREE.SphereGeometry(0.025, 8, 6),
+  lowBody: new THREE.SphereGeometry(0.32, 10, 8),
+  lowHead: new THREE.SphereGeometry(0.4, 12, 8),
+  lowHair: new THREE.SphereGeometry(0.42, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.45),
+  glove: new THREE.SphereGeometry(0.1, 12, 10),
 };
 
 const SHARED = {
@@ -43,8 +47,15 @@ const SHARED = {
   metal: new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.9, roughness: 0.25 }),
   dumbbell: new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.5 }),
   ball: new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.6 }),
+  dark: new THREE.MeshStandardMaterial({ color: '#1f2937', roughness: 0.5 }),
   glasses: new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.15, metalness: 0.5 }),
   sweat: new THREE.MeshStandardMaterial({ color: '#7dd3fc', roughness: 0.1, transparent: true, opacity: 0.85 }),
+  glove: new THREE.MeshStandardMaterial({ color: '#dc2626', roughness: 0.4 }),
+  pad: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.5 }),
+  rope: new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.6 }),
+  gold: new THREE.MeshStandardMaterial({ color: '#facc15', metalness: 0.8, roughness: 0.25, emissive: '#7c5d00', emissiveIntensity: 0.3 }),
+  red: new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.6 }),
+  towel: new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.9 }),
 };
 
 export const DEFAULT_APPEARANCE = {
@@ -53,6 +64,7 @@ export const DEFAULT_APPEARANCE = {
   skinColor: '#f5c9a0',
   hair: { style: 'short', color: '#3b2a20' },
   outfit: { style: 'tshirt', top: '#22d3ee', bottom: '#334155', shoes: '#f8fafc' },
+  accessory: null,
   level: 1,
 };
 
@@ -62,6 +74,9 @@ function mesh(geo, material, x = 0, y = 0, z = 0) {
   m.castShadow = true;
   return m;
 }
+
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
 
 export class Character {
   constructor(appearance = DEFAULT_APPEARANCE, { showName = true, isLocal = false } = {}) {
@@ -80,8 +95,9 @@ export class Character {
     };
 
     this._buildSkeleton();
+    this.propMid = new THREE.Group(); // đạo cụ cầm 2 tay (đặt giữa 2 bàn tay mỗi frame)
+    this.model.add(this.propMid);
 
-    // Bóng tròn dưới chân (luôn có, giúp nhìn rõ vị trí kể cả khi tắt shadow)
     const blob = new THREE.Mesh(G.blob, SHARED.blob);
     blob.rotation.x = -Math.PI / 2;
     blob.position.y = 0.012;
@@ -99,6 +115,10 @@ export class Character {
     this.currentProp = null;
     this.sweatDrops = [];
     this.sweatTimer = 0;
+    this.lod = 0;
+    this._lodAcc = 0;
+    this._cast = true;
+    this.labelsWanted = { name: true, bubble: true };
 
     // Nhãn tên + bong bóng chat + icon emote (DOM)
     this.labelEl = document.createElement('div');
@@ -114,6 +134,7 @@ export class Character {
     this.label.position.set(0, 1.78, 0);
     this.root.add(this.label);
     this.nameEl.style.display = showName ? '' : 'none';
+    this.showName = showName;
 
     this.setAppearance(appearance);
   }
@@ -124,7 +145,6 @@ export class Character {
     this.hips.position.y = HIPS;
     this.model.add(this.hips);
 
-    // Thân
     this.spine = new THREE.Group();
     this.hips.add(this.spine);
     this.bodyMesh = mesh(G.body, m.top, 0, 0.2, 0);
@@ -135,7 +155,6 @@ export class Character {
     this.outfitExtras = new THREE.Group();
     this.spine.add(this.outfitExtras);
 
-    // Đầu
     this.neck = new THREE.Group();
     this.neck.position.y = 0.46;
     this.spine.add(this.neck);
@@ -148,8 +167,11 @@ export class Character {
     this.head.add(this.hairGroup);
     this.propHead = new THREE.Group();
     this.head.add(this.propHead);
+    this.accHead = new THREE.Group();
+    this.head.add(this.accHead);
+    this.accBody = new THREE.Group();
+    this.spine.add(this.accBody);
 
-    // Tay
     const makeArm = (side) => {
       const shoulder = new THREE.Group();
       shoulder.position.set(side * 0.255, 0.36, 0);
@@ -172,7 +194,6 @@ export class Character {
     this.armL = makeArm(1);
     this.armR = makeArm(-1);
 
-    // Chân
     const makeLeg = (side) => {
       const hip = new THREE.Group();
       hip.position.set(side * 0.12, 0, 0);
@@ -207,16 +228,13 @@ export class Character {
       const shine = new THREE.Mesh(G.eyeShine, SHARED.white);
       shine.position.set(s * 0.14 + 0.018, 0.355, 0.38);
       this.eyesOpen.add(e, shine);
-
       const happy = new THREE.Mesh(G.eyeArc, SHARED.eye);
       happy.position.set(s * 0.14, 0.32, 0.37);
       this.eyesHappy.add(happy);
-
       const closed = new THREE.Mesh(G.eyeArc, SHARED.eye);
       closed.rotation.z = Math.PI;
       closed.position.set(s * 0.14, 0.345, 0.37);
       this.eyesClosed.add(closed);
-
       const cheek = new THREE.Mesh(G.cheek, SHARED.cheek);
       cheek.scale.set(1, 0.6, 0.3);
       cheek.position.set(s * 0.235, 0.245, 0.3);
@@ -260,20 +278,23 @@ export class Character {
     m.hair.color.set(a.hair.color);
     this.lashes.visible = a.gender === 'female';
     this.mouthSmile.material = a.gender === 'female' ? m.lips : SHARED.eye;
-
-    // Tay áo: áo ba lỗ để lộ bắp tay, hoodie/áo cà sa phủ cả cẳng tay
     const longSleeve = o.style === 'hoodie' || o.style === 'robe';
     for (const arm of [this.armL, this.armR]) {
       arm.upper.material = o.style === 'tank' ? m.skin : m.top;
       arm.fore.material = longSleeve ? m.top : m.skin;
     }
-    // Quần: nam quần short (lộ cẳng chân), nữ legging; áo cà sa che hết
     for (const leg of [this.legL, this.legR]) {
       leg.thigh.material = m.bottom;
       leg.shin.material = o.style === 'robe' || a.gender === 'female' ? m.bottom : m.skin;
     }
     this._buildOutfitExtras(o);
     this._buildHair(a.hair.style, a.gender);
+    this._buildAccessory(a.accessory);
+    if (this.low) {
+      this.low.removeFromParent();
+      this.low = null;
+      if (this.lod === 2) this._ensureLow().visible = true;
+    }
     this.setName(a.displayName, a.level);
   }
 
@@ -281,17 +302,14 @@ export class Character {
     const g = this.outfitExtras;
     g.clear();
     if (o.style === 'robe') {
-      // Áo cà sa như chú tiểu: tràng hạt + dây đai chéo + vạt áo
       const n = 18;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2;
-        // vòng hạt quanh cổ, phía trước võng xuống ngực
         const sag = Math.max(0, Math.sin(a)) * 0.13;
         const b = mesh(G.bead, SHARED.beads, Math.cos(a) * 0.22, 0.43 - sag, Math.sin(a) * 0.24 + 0.03);
         b.castShadow = false;
         g.add(b);
       }
-      // đai lưng vàng ôm theo thân + nút thắt
       const sash = new THREE.Mesh(new THREE.TorusGeometry(0.292, 0.026, 6, 32), SHARED.sash);
       sash.scale.set(1, 0.92, 1);
       sash.rotation.x = Math.PI / 2;
@@ -318,7 +336,6 @@ export class Character {
         g.add(str);
       }
     } else if (o.style === 'tshirt') {
-      // Logo tròn trước ngực
       const badge = new THREE.Mesh(new THREE.CircleGeometry(0.06, 16), SHARED.white);
       badge.position.set(0.1, 0.3, 0.272);
       badge.rotation.x = -0.25;
@@ -337,7 +354,7 @@ export class Character {
     const g = this.hairGroup;
     g.clear();
     const hm = this.mats.hair;
-    if (style === 'bald') return; // đầu trọc như chú tiểu
+    if (style === 'bald') return;
     const cap = mesh(G.hairCap, hm, 0, 0.36, 0);
     cap.rotation.x = -0.12;
     const back = mesh(G.hairBack, hm, 0, 0.36, 0);
@@ -351,7 +368,6 @@ export class Character {
     };
     const sph = (r) => new THREE.SphereGeometry(r, 14, 10);
     const capsule = (r, l) => new THREE.CapsuleGeometry(r, l, 4, 10);
-
     switch (style) {
       case 'short':
         for (const x of [-0.16, 0, 0.16]) add(sph(0.11), x, 0.62, 0.27, 1.2, 0.8, 0.8);
@@ -395,7 +411,6 @@ export class Character {
         break;
     }
     if (gender === 'female' && style !== 'long') {
-      // nơ nhỏ dễ thương
       const bow = new THREE.Group();
       const bm = new THREE.MeshStandardMaterial({ color: '#ff6b9a', roughness: 0.5 });
       for (const s of [-1, 1]) {
@@ -411,6 +426,55 @@ export class Character {
     }
   }
 
+  // Phụ kiện mua ở cửa hàng
+  _buildAccessory(name) {
+    this.accHead.clear();
+    this.accBody.clear();
+    this.hasGloves = name === 'gloves';
+    switch (name) {
+      case 'headband': {
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.405, 0.04, 8, 32), SHARED.red);
+        t.position.y = 0.52;
+        t.rotation.x = Math.PI / 2 - 0.15;
+        this.accHead.add(t);
+        break;
+      }
+      case 'cap': {
+        const c = new THREE.Mesh(new THREE.SphereGeometry(0.44, 24, 10, 0, Math.PI * 2, 0, Math.PI * 0.42), SHARED.red);
+        c.position.y = 0.38;
+        c.rotation.x = -0.1;
+        c.castShadow = true;
+        this.accHead.add(c);
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.025, 20, 1, false, -Math.PI / 2, Math.PI), SHARED.red);
+        brim.position.set(0, 0.6, 0.28);
+        brim.rotation.x = 0.15;
+        this.accHead.add(brim);
+        break;
+      }
+      case 'towel': {
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.06, 8, 20), SHARED.towel);
+        t.rotation.x = Math.PI / 2 - 0.3;
+        t.position.set(0, 0.46, 0.02);
+        this.accBody.add(t);
+        break;
+      }
+      case 'crown': {
+        const c = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.14, 16, 1, true), SHARED.gold);
+        c.position.y = 0.8;
+        this.accHead.add(c);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          const sp = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 6), SHARED.gold);
+          sp.position.set(Math.cos(a) * 0.2, 0.92, Math.sin(a) * 0.2);
+          this.accHead.add(sp);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   setName(name, level) {
     this.nameEl.innerHTML = '';
     const lv = document.createElement('span');
@@ -419,6 +483,13 @@ export class Character {
     const nm = document.createElement('span');
     nm.textContent = name;
     this.nameEl.append(lv, nm);
+    if (this.tagEl) this.nameEl.prepend(this.tagEl);
+  }
+
+  // Tag CLB trước tên [TAG]
+  setTag(tag) {
+    this.tagEl = tag ? Object.assign(document.createElement('span'), { className: 'gtag', textContent: `[${tag}]` }) : null;
+    this.setName(this.appearance.displayName, this.appearance.level);
   }
 
   setLevel(level) {
@@ -426,12 +497,61 @@ export class Character {
     this.setName(this.appearance.displayName, level);
   }
 
+  // Chỉ hiện tên / bong bóng chat khi ở gần
+  setLabelVisibility(nameVisible, bubbleVisible) {
+    this.labelsWanted.name = nameVisible;
+    this.labelsWanted.bubble = bubbleVisible;
+    const bubbleOn = this.bubbleEl.classList.contains('show') || this.emoteEl.classList.contains('show');
+    this.label.visible = this.lod < 3 && (nameVisible || (bubbleVisible && bubbleOn));
+    this.nameEl.style.display = this.showName && nameVisible ? '' : 'none';
+  }
+
+  // ---------- LOD ----------
+  _ensureLow() {
+    if (this.low) return this.low;
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(G.lowBody, this.mats.top);
+    body.position.y = 0.55;
+    body.scale.set(1, 1.1, 0.92);
+    const head = new THREE.Mesh(G.lowHead, this.mats.skin);
+    head.position.y = 1.18;
+    g.add(body, head);
+    if (this.appearance.hair.style !== 'bald') {
+      const hair = new THREE.Mesh(G.lowHair, this.mats.hair);
+      hair.position.y = 1.18;
+      g.add(hair);
+    }
+    const legs = new THREE.Mesh(G.lowBody, this.mats.bottom);
+    legs.position.y = 0.2;
+    legs.scale.set(0.7, 0.6, 0.6);
+    g.add(legs);
+    g.visible = false;
+    this.root.add(g);
+    this.low = g;
+    return g;
+  }
+
+  setLOD(level) {
+    if (level === this.lod) return;
+    this.lod = level;
+    this.model.visible = level <= 1;
+    if (level === 2) this._ensureLow();
+    if (this.low) this.low.visible = level === 2;
+    this.root.visible = level < 3;
+    const cast = level === 0;
+    if (cast !== this._cast) {
+      this._cast = cast;
+      this.model.traverse((o) => {
+        if (o.isMesh) o.castShadow = cast;
+      });
+    }
+  }
+
   play(name) {
     if (!ANIMS[name]) name = 'idle';
     if (this.anim === name) return;
     this.anim = name;
-    // Đang làm động tác khác thì huỷ emote
-    if (name !== 'idle' && name !== 'walk' && name !== 'run') this.stopEmote();
+    if (name !== 'idle' && name !== 'walk' && name !== 'run' && name !== 'jump') this.stopEmote();
   }
 
   playEmote(name) {
@@ -441,7 +561,15 @@ export class Character {
     this.emoteTime = 0;
     this.emoteEl.textContent = e.icon;
     this.emoteEl.classList.remove('show');
-    void this.emoteEl.offsetWidth; // restart animation CSS
+    void this.emoteEl.offsetWidth;
+    this.emoteEl.classList.add('show');
+  }
+
+  // Hiện icon nổi trên đầu (dùng cho emote đôi, hiệu ứng "Tập cùng", 💬...)
+  flashIcon(icon) {
+    this.emoteEl.textContent = icon;
+    this.emoteEl.classList.remove('show');
+    void this.emoteEl.offsetWidth;
     this.emoteEl.classList.add('show');
   }
 
@@ -457,47 +585,146 @@ export class Character {
     this._bubbleTimer = setTimeout(() => this.bubbleEl.classList.remove('show'), 5000 + Math.min(4000, text.length * 60));
   }
 
-  _setProp(name) {
-    if (this.currentProp === name) return;
-    this.currentProp = name;
+  _clearProps() {
     for (const arm of [this.armL, this.armR]) {
       const old = arm.hand.getObjectByName('prop');
       if (old) arm.hand.remove(old);
     }
     this.propHead.clear();
-    if (name === 'dumbbells') {
+    this.propMid.clear();
+    this.propMid.userData.active = false;
+  }
+
+  _setProp(name) {
+    if (this.hasGloves && !name) name = 'gloves';
+    if (this.currentProp === name) return;
+    this.currentProp = name;
+    this._clearProps();
+    const both = (fn) => {
       for (const arm of [this.armL, this.armR]) {
-        const p = new THREE.Group();
+        const p = fn();
         p.name = 'prop';
-        const h = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.24, 6), SHARED.metal);
-        h.rotation.z = Math.PI / 2;
-        p.add(h);
-        for (const s of [-1, 1]) {
-          const w = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.06, 10), SHARED.dumbbell);
-          w.rotation.z = Math.PI / 2;
-          w.position.x = s * 0.11;
-          w.castShadow = true;
-          p.add(w);
-        }
-        p.position.y = -0.02;
         arm.hand.add(p);
       }
-    } else if (name === 'ball') {
-      const p = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), SHARED.ball);
-      p.name = 'prop';
-      p.position.set(-0.13, -0.06, 0.06);
-      p.castShadow = true;
-      this.armL.hand.add(p);
-    } else if (name === 'sunglasses') {
-      for (const s of [-1, 1]) {
-        const lens = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.02), SHARED.glasses);
-        lens.position.set(s * 0.14, 0.34, 0.39);
-        this.propHead.add(lens);
+    };
+    switch (name) {
+      case 'dumbbells':
+      case 'farmer': {
+        const heavy = name === 'farmer';
+        both(() => {
+          const p = new THREE.Group();
+          const h = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.24, 6), SHARED.metal);
+          h.rotation.z = Math.PI / 2;
+          p.add(h);
+          for (const s of [-1, 1]) {
+            const w = new THREE.Mesh(new THREE.CylinderGeometry(heavy ? 0.09 : 0.05, heavy ? 0.09 : 0.05, heavy ? 0.1 : 0.06, 10), heavy ? SHARED.dark : SHARED.dumbbell);
+            w.rotation.z = Math.PI / 2;
+            w.position.x = s * 0.11;
+            w.castShadow = true;
+            p.add(w);
+          }
+          p.position.y = -0.02;
+          return p;
+        });
+        break;
       }
-      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.02), SHARED.glasses);
-      bridge.position.set(0, 0.36, 0.395);
-      this.propHead.add(bridge);
+      case 'gloves':
+        both(() => {
+          const gl = new THREE.Mesh(G.glove, SHARED.glove);
+          gl.scale.set(1, 1, 1.15);
+          gl.castShadow = true;
+          return gl;
+        });
+        break;
+      case 'pads':
+        both(() => {
+          const pd = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.06, 14), SHARED.pad);
+          pd.rotation.x = Math.PI / 2;
+          pd.position.z = 0.05;
+          return pd;
+        });
+        break;
+      case 'ball': {
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), SHARED.ball);
+        p.castShadow = true;
+        this.propMid.add(p);
+        this.propMid.userData.active = true;
+        this.propMid.userData.align = false;
+        break;
+      }
+      case 'kettlebell': {
+        const kb = new THREE.Group();
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 10), SHARED.dark);
+        b.position.y = -0.14;
+        const h = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.015, 6, 14, Math.PI), SHARED.dark);
+        kb.add(b, h);
+        this.propMid.add(kb);
+        this.propMid.userData.active = true;
+        this.propMid.userData.align = false;
+        break;
+      }
+      case 'ezbar': {
+        const g = new THREE.Group();
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.0, 6), SHARED.metal);
+        shaft.rotation.z = Math.PI / 2;
+        g.add(shaft);
+        for (const s of [-1, 1]) {
+          const pl = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 14), SHARED.dark);
+          pl.rotation.z = Math.PI / 2;
+          pl.position.x = s * 0.42;
+          g.add(pl);
+        }
+        this.propMid.add(g);
+        this.propMid.userData.active = true;
+        this.propMid.userData.align = true;
+        break;
+      }
+      case 'rope': {
+        const r = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.012, 6, 32), SHARED.rope);
+        this.propMid.add(r);
+        this.propMid.userData.active = true;
+        this.propMid.userData.align = true;
+        this.propMid.userData.spin = true;
+        break;
+      }
+      case 'sunglasses':
+        for (const s of [-1, 1]) {
+          const lens = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.02), SHARED.glasses);
+          lens.position.set(s * 0.14, 0.34, 0.39);
+          this.propHead.add(lens);
+        }
+        {
+          const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.02, 0.02), SHARED.glasses);
+          bridge.position.set(0, 0.36, 0.395);
+          this.propHead.add(bridge);
+        }
+        break;
+      default:
+        break;
     }
+  }
+
+  // Đặt đạo cụ 2 tay vào giữa 2 bàn tay (toạ độ trong model)
+  _placeMidProp() {
+    const pm = this.propMid;
+    if (!pm.userData.active) return;
+    this.model.updateMatrixWorld(true);
+    this.armL.hand.getWorldPosition(_v1);
+    this.armR.hand.getWorldPosition(_v2);
+    this.model.worldToLocal(_v1);
+    this.model.worldToLocal(_v2);
+    pm.position.copy(_v1).add(_v2).multiplyScalar(0.5);
+    if (pm.userData.align) {
+      const dx = _v1.x - _v2.x;
+      const dy = _v1.y - _v2.y;
+      const dz = _v1.z - _v2.z;
+      pm.rotation.set(0, -Math.atan2(dz, dx), Math.atan2(dy, Math.hypot(dx, dz)));
+      if (pm.userData.spin) {
+        pm.children[0].rotation.y = Math.PI / 2;
+        pm.children[0].rotation.z = this.time * 12;
+        pm.position.y -= 0.35;
+      }
+    } else pm.position.y -= 0.05;
   }
 
   _updateSweat(dt, active) {
@@ -524,10 +751,21 @@ export class Character {
   }
 
   /**
-   * ctx: { phase, p, beat } – nhịp tập (dùng cho animation máy tập / aerobic)
+   * ctx: { phase, p, beat, params, lean } – nhịp tập / tham số animation
    */
   update(dt, ctx = {}) {
     this.time += dt;
+    if (this.lod >= 2) {
+      // hình nộm: chỉ nhún nhẹ, không tính khớp
+      if (this.low && this.lod === 2) this.low.position.y = this.anim === 'walk' || this.anim === 'run' ? Math.abs(Math.sin(this.time * 10)) * 0.04 : 0;
+      return;
+    }
+    if (this.lod === 1) {
+      this._lodAcc += dt;
+      if (this._lodAcc < 0.1) return; // cập nhật khớp 10 lần/giây
+      dt = this._lodAcc;
+      this._lodAcc = 0;
+    }
     let target;
     let propName = ANIM_PROPS[this.anim] || null;
     if (this.emote) {
@@ -537,11 +775,10 @@ export class Character {
       if (e.prop) propName = e.prop;
       if (this.emoteTime > e.duration) this.stopEmote();
     } else {
-      target = ANIMS[this.anim](this.time, { phase: 0, p: 0, beat: 0, ...ctx });
+      target = (ANIMS[this.anim] || ANIMS.idle)(this.time, { phase: 0, p: 0, beat: 0, ...ctx });
     }
     this._setProp(propName);
 
-    // Nội suy mượt sang tư thế mục tiêu
     const k = 1 - Math.exp(-dt * 14);
     const P = this.pose;
     for (const key in BASE_POSE) {
@@ -549,23 +786,27 @@ export class Character {
       P[key] += (v - P[key]) * k;
     }
     this._applyPose(P);
+    this._placeMidProp();
 
-    // Mặt: chớp mắt ngẫu nhiên
-    let eyes = target.eyes || 'open';
-    this.blinkTimer -= dt;
-    if (this.blinkTimer <= 0) {
-      this.blinking = 0.13;
-      this.blinkTimer = 2.5 + Math.random() * 3.5;
+    if (this.lod === 0) {
+      let eyes = target.eyes || 'open';
+      this.blinkTimer -= dt;
+      if (this.blinkTimer <= 0) {
+        this.blinking = 0.13;
+        this.blinkTimer = 2.5 + Math.random() * 3.5;
+      }
+      if (this.blinking > 0) {
+        this.blinking -= dt;
+        if (eyes === 'open') eyes = 'closed';
+      }
+      this.setFace(eyes, target.mouth || 'smile');
+      this._updateSweat(dt, !!target.sweat);
     }
-    if (this.blinking > 0) {
-      this.blinking -= dt;
-      if (eyes === 'open') eyes = 'closed';
-    }
-    this.setFace(eyes, target.mouth || 'smile');
-    this._updateSweat(dt, !!target.sweat);
   }
 
   _applyPose(P) {
+    this.model.rotation.x = P.lieX;
+    this.model.position.set(0, P.lieY, P.lieZ);
     this.hips.position.y = P.hipsY + P.bounce;
     this.spine.rotation.set(P.spineX, P.spineY, P.spineZ);
     this.neck.rotation.set(P.headX, P.headY, P.headZ);
@@ -577,9 +818,8 @@ export class Character {
     this.legR.hip.rotation.set(P.rLegX, 0, -P.rLegZ);
     this.legL.knee.rotation.x = P.lKnee;
     this.legR.knee.rotation.x = P.rKnee;
-    // giữ bóng dưới đất khi nhân vật bị nâng lên (xà đơn, ghế)
     this.blob.position.y = 0.012 - this.root.position.y;
-    this.blob.visible = this.root.position.y < 0.3;
+    this.blob.visible = this.root.position.y < 0.3 && Math.abs(P.lieX) < 0.3;
   }
 
   dispose() {

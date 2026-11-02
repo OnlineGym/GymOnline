@@ -75,23 +75,49 @@ export class Input {
           this.emit('escape');
           break;
         case 'KeyM':
-          this.emit('toggleMinimap');
+          this.emit('map');
+          break;
+        case 'Space':
+          e.preventDefault();
+          this.emit('space');
+          break;
+        case 'KeyF':
+          this.emit('interactPlayer');
+          break;
+        case 'KeyI':
+          this.emit('inventory');
+          break;
+        case 'KeyO':
+          this.emit('social');
+          break;
+        case 'KeyN':
+          this.emit('finder');
+          break;
+        case 'KeyJ':
+          this.emit('spar', 'punch');
+          break;
+        case 'KeyK':
+          this.emit('spar', 'block');
+          break;
+        case 'KeyL':
+          this.emit('spar', 'dodge');
           break;
         default:
           if (/^Digit[1-8]$/.test(e.code)) this.emit('emoteHotkey', Number(e.code.slice(5)) - 1);
       }
     } else {
       this.keys.delete(e.code);
+      if (e.code === 'Space') this.emit('spaceUp');
     }
   }
 
   _onPointerDown(e) {
     if (e.pointerType === 'touch') {
-      this._touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      this._touches.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() });
       if (this._touches.size === 2) this._pinchDist = this._touchDistance();
       return;
     }
-    this._drag = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    this._drag = { x: e.clientX, y: e.clientY, id: e.pointerId, sx: e.clientX, sy: e.clientY, t: performance.now() };
     this.canvas.setPointerCapture?.(e.pointerId);
   }
 
@@ -123,10 +149,17 @@ export class Input {
 
   _onPointerUp(e) {
     if (e.pointerType === 'touch') {
+      const t = this._touches.get(e.pointerId);
+      if (t && this._touches.size === 1 && Math.hypot(e.clientX - t.sx, e.clientY - t.sy) < 10 && performance.now() - t.t < 350) this.emit('click', e.clientX, e.clientY);
       this._touches.delete(e.pointerId);
       return;
     }
-    if (this._drag?.id === e.pointerId) this._drag = null;
+    if (this._drag?.id === e.pointerId) {
+      const d = this._drag;
+      // bấm nhanh không kéo = click chọn (vd: bấm vào nhân vật khác)
+      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6 && performance.now() - d.t < 350) this.emit('click', e.clientX, e.clientY);
+      this._drag = null;
+    }
   }
 
   _touchDistance() {

@@ -1,7 +1,7 @@
 import { h, uiRoot } from './dom.js';
 import { isMobile } from '../core/device.js';
 
-const CHANNEL_LABEL = { global: 'Thế giới', nearby: 'Gần', dm: 'Riêng' };
+const CHANNEL_LABEL = { global: 'Channel', nearby: 'Gần', party: 'Party', guild: 'CLB', dm: 'Riêng' };
 const MAX_MSGS = 120;
 
 /**
@@ -14,7 +14,7 @@ export class ChatUI {
     this.onSend = onSend;
     this.onOpenDm = onOpenDm;
     this.channel = 'global';
-    this.messages = { global: [], nearby: [], dm: [] };
+    this.messages = { global: [], nearby: [], party: [], guild: [], dm: [] };
     this.dmTarget = null; // { userId, name }
     this.unread = 0;
 
@@ -82,7 +82,7 @@ export class ChatUI {
     this.channel = ch;
     for (const [k, b] of Object.entries(this.tabBtns)) b.classList.toggle('active', k === ch);
     this.dmBar.classList.toggle('hidden', ch !== 'dm');
-    this.input.placeholder = ch === 'dm' ? (this.dmTarget ? `Nhắn riêng ${this.dmTarget.name}...` : 'Chọn người để nhắn riêng') : ch === 'nearby' ? 'Chat với người xung quanh...' : 'Chat với cả phòng gym...';
+    this.input.placeholder = ch === 'dm' ? (this.dmTarget ? `Nhắn riêng ${this.dmTarget.name}...` : 'Chọn người để nhắn riêng') : ch === 'nearby' ? 'Chat với người xung quanh (14m)...' : ch === 'party' ? 'Chat với party...' : ch === 'guild' ? 'Chat với câu lạc bộ...' : 'Chat với cả channel...';
     this.render();
   }
 
@@ -106,6 +106,7 @@ export class ChatUI {
   }
 
   add(msg) {
+    if (this.isBlocked?.(msg.userId)) return;
     const ch = msg.channel;
     if (ch === 'dm') {
       const other = msg.from === this.selfUserId ? msg.to : msg.from;
@@ -151,7 +152,7 @@ export class ChatUI {
     if (!self) who.onclick = () => this.openDm(m.userId, m.displayName);
     const time = new Date(m.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     this.log.append(
-      h('div', { class: `msg${self ? ' self' : ''}${m.channel === 'dm' ? ' dm' : ''}`, title: time }, m.channel === 'nearby' ? h('span', { class: 'ch' }, 'gần') : null, who, ': ', m.content)
+      h('div', { class: `msg${self ? ' self' : ''}${m.channel === 'dm' ? ' dm' : ''}`, title: time }, m.channel !== 'global' && m.channel !== 'dm' ? h('span', { class: 'ch' }, CHANNEL_LABEL[m.channel]) : null, who, ': ', m.content)
     );
     if (scroll) this.scrollBottom();
   }

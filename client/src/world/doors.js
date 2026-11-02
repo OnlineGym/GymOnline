@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { box } from './helpers.js';
 import { mat } from './materials.js';
-import { DOOR_H, WALL_T } from './layout.js';
+const DOOR_H = 2.6;
+const WALL_T = 0.3;
 
 /**
  * Cửa tự động: mở khi có người chơi (bất kỳ ai) đứng gần, đóng lại khi đi xa.

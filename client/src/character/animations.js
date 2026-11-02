@@ -1,3 +1,4 @@
+import { EXTRA_ANIMS, EXTRA_PROPS } from './anims/extra.js';
 /**
  * Animation viết bằng code: mỗi hàm trả về "tư thế" (góc các khớp) theo thời gian.
  * Nhân vật sẽ nội suy mượt từ tư thế hiện tại sang tư thế mục tiêu mỗi frame.
@@ -12,6 +13,10 @@
 export const HIPS = 0.34;
 
 export const BASE_POSE = {
+  // xoay/dịch toàn thân (tư thế nằm: ghế đẩy ngực, bơi, plank...)
+  lieX: 0,
+  lieY: 0,
+  lieZ: 0,
   hipsY: HIPS,
   bounce: 0,
   spineX: 0,
@@ -38,16 +43,16 @@ export const BASE_POSE = {
   rKnee: 0,
 };
 
-const TAU = Math.PI * 2;
-const lerp = (a, b, k) => a + (b - a) * k;
-const smooth = (k) => k * k * (3 - 2 * k);
-const pos = (v) => Math.max(0, v);
+export const TAU = Math.PI * 2;
+export const lerp = (a, b, k) => a + (b - a) * k;
+export const smooth = (k) => k * k * (3 - 2 * k);
+export const pos = (v) => Math.max(0, v);
 
 // Tư thế ngồi (đùi nằm ngang, cẳng chân thả xuống)
-const SIT = { lLegX: -1.5, lKnee: 1.45, rLegX: -1.5, rKnee: 1.45, lLegZ: 0.12, rLegZ: 0.12 };
+export const SIT = { lLegX: -1.5, lKnee: 1.45, rLegX: -1.5, rKnee: 1.45, lLegZ: 0.12, rLegZ: 0.12 };
 
 // Gán đối xứng cho 2 tay
-const arms = (x, z, elbow, y = 0, twist = 0) => ({
+export const arms = (x, z, elbow, y = 0, twist = 0) => ({
   lArmX: x,
   lArmZ: z,
   lElbow: elbow,
@@ -71,7 +76,7 @@ function blendPoses(a, b, k) {
 }
 
 // Chuỗi keyframe lặp theo phase 0..1
-function keyframes(list, phase) {
+export function keyframes(list, phase) {
   const n = list.length;
   const f = phase * n;
   const i = Math.floor(f) % n;
@@ -79,7 +84,7 @@ function keyframes(list, phase) {
 }
 
 // ===================== DI CHUYỂN =====================
-function idle(t) {
+export function idle(t) {
   const b = Math.sin(t * 2.2);
   const look = Math.sin(t * 0.37) * Math.sin(t * 0.23);
   return {
@@ -93,7 +98,7 @@ function idle(t) {
   };
 }
 
-function walk(t) {
+export function walk(t) {
   const w = t * 10;
   const s = Math.sin(w);
   return {
@@ -112,7 +117,7 @@ function walk(t) {
   };
 }
 
-function run(t) {
+export function run(t) {
   const w = t * 15;
   const s = Math.sin(w);
   return {
@@ -250,7 +255,7 @@ const ballThrow = (_t, { p }) => {
 };
 
 // Aerobic: 4 điệu nhảy, mỗi điệu 8 nhịp, đồng bộ theo nhạc
-function aerobic(_t, { beat }) {
+export function aerobic(_t, { beat }) {
   const move = Math.floor(beat / 8) % 4;
   const b = beat % 1;
   const half = Math.sin(beat * Math.PI); // đổi bên mỗi nhịp
@@ -319,7 +324,7 @@ function aerobic(_t, { beat }) {
   }
 }
 
-function sauna(t) {
+export function sauna(t) {
   const br = Math.sin(t * 1.2);
   return {
     ...SIT,
@@ -403,6 +408,7 @@ function meditate(t) {
 }
 
 export const ANIMS = {
+  ...EXTRA_ANIMS,
   idle,
   walk,
   run,
@@ -433,6 +439,7 @@ export const ANIMS = {
 export const ANIM_PROPS = {
   dumbbellCurl: 'dumbbells',
   ballThrow: 'ball',
+  ...EXTRA_PROPS,
 };
 
 // ===================== BIỂU CẢM (EMOTE) =====================

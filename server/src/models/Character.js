@@ -1,10 +1,13 @@
 import mongoose from 'mongoose';
+import { STATS, ITEMS } from '../../../shared/constants.js';
 
 export const HAIR_STYLES = ['bald', 'short', 'spiky', 'bun', 'long', 'ponytail', 'twintails'];
 export const OUTFIT_STYLES = ['tshirt', 'tank', 'hoodie', 'robe'];
 export const GENDERS = ['male', 'female'];
+export const ACCESSORIES = Object.keys(ITEMS).filter((k) => ITEMS[k].type === 'accessory');
 
 const hexColor = { type: String, match: /^#[0-9a-fA-F]{6}$/ };
+const statsDef = Object.fromEntries(STATS.map((s) => [s, { type: Number, default: 0 }]));
 
 const characterSchema = new mongoose.Schema(
   {
@@ -22,24 +25,26 @@ const characterSchema = new mongoose.Schema(
       bottom: { ...hexColor, default: '#334155' },
       shoes: { ...hexColor, default: '#f8fafc' },
     },
+    accessory: { type: String, default: null },
     level: { type: Number, default: 1, min: 1 },
     exp: { type: Number, default: 0, min: 0 },
-    stats: {
-      chest: { type: Number, default: 0 },
-      back: { type: Number, default: 0 },
-      legs: { type: Number, default: 0 },
-      arms: { type: Number, default: 0 },
-      stamina: { type: Number, default: 0 },
-    },
-    coins: { type: Number, default: 100 },
+    stats: statsDef,
+    coins: { type: Number, default: 100, min: 0 },
     totalCalories: { type: Number, default: 0 },
     totalWorkouts: { type: Number, default: 0 },
+    trackLaps: { type: Number, default: 0 },
+    inventory: [{ _id: false, item: String, qty: { type: Number, default: 0, min: 0 } }],
+    buffs: [{ _id: false, kind: String, mult: Number, until: Date }],
+    guildId: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null, index: true },
+    groupsTrained: [{ type: String }],
+    wins: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
 
 characterSchema.index({ level: -1, exp: -1 });
 characterSchema.index({ totalCalories: -1 });
+for (const s of STATS) characterSchema.index({ [`stats.${s}`]: -1 });
 
 // Dữ liệu ngoại hình gửi cho người chơi khác (không lộ thông tin riêng tư)
 characterSchema.methods.appearance = function appearance() {
@@ -48,14 +53,19 @@ characterSchema.methods.appearance = function appearance() {
     gender: this.gender,
     skinColor: this.skinColor,
     hair: { style: this.hair.style, color: this.hair.color },
-    outfit: {
-      style: this.outfit.style,
-      top: this.outfit.top,
-      bottom: this.outfit.bottom,
-      shoes: this.outfit.shoes,
-    },
+    outfit: { style: this.outfit.style, top: this.outfit.top, bottom: this.outfit.bottom, shoes: this.outfit.shoes },
+    accessory: this.accessory || null,
     level: this.level,
   };
+};
+
+characterSchema.methods.statsObject = function statsObject() {
+  return Object.fromEntries(STATS.map((s) => [s, this.stats?.[s] || 0]));
+};
+
+characterSchema.methods.activeBuffs = function activeBuffs() {
+  const now = Date.now();
+  return (this.buffs || []).filter((b) => b.until && b.until.getTime() > now).map((b) => ({ kind: b.kind, mult: b.mult, until: b.until }));
 };
 
 characterSchema.methods.toPublic = function toPublic() {
@@ -64,17 +74,33 @@ characterSchema.methods.toPublic = function toPublic() {
     userId: this.userId.toString(),
     ...this.appearance(),
     exp: this.exp,
-    stats: {
-      chest: this.stats.chest,
-      back: this.stats.back,
-      legs: this.stats.legs,
-      arms: this.stats.arms,
-      stamina: this.stats.stamina,
-    },
+    stats: this.statsObject(),
     coins: this.coins,
     totalCalories: Math.round(this.totalCalories),
     totalWorkouts: this.totalWorkouts,
+    trackLaps: this.trackLaps || 0,
+    inventory: (this.inventory || []).filter((i) => i.qty > 0).map((i) => ({ item: i.item, qty: i.qty })),
+    buffs: this.activeBuffs(),
+    guildId: this.guildId ? this.guildId.toString() : null,
+    wins: this.wins || 0,
   };
+};
+
+characterSchema.methods.addItem = function addItem(item, qty) {
+  const it = this.inventory.find((i) => i.item === item);
+  if (it) it.qty += qty;
+  else this.inventory.push({ item, qty });
+};
+
+characterSchema.methods.removeItem = function removeItem(item, qty) {
+  const it = this.inventory.find((i) => i.item === item);
+  if (!it || it.qty < qty) return false;
+  it.qty -= qty;
+  return true;
+};
+
+characterSchema.methods.hasItem = function hasItem(item) {
+  return (this.inventory || []).some((i) => i.item === item && i.qty > 0);
 };
 
 export default mongoose.model('Character', characterSchema);

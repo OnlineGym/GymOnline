@@ -34,7 +34,8 @@ export class ThirdPersonCamera {
     this.distance = THREE.MathUtils.clamp(this.distance + look.zoom, this.minDist, this.maxDist);
 
     _focus.set(target.x, target.y + this.focusHeight, target.z);
-    if (!this._init) {
+    if (!this._init || this.snap) {
+      this.snap = false;
       this.smoothFocus.copy(_focus);
       this._init = true;
     }
@@ -58,7 +59,8 @@ export class ThirdPersonCamera {
     const cam = this.camera.position;
     cam.copy(this.smoothFocus).addScaledVector(_dir, this.currentDist);
     // Không cho camera chui lên trần / xuống sàn khi ở trong nhà
-    if (target.z < 20.2) cam.y = Math.min(cam.y, this.ceiling);
+    const inside = Math.abs(target.x) < 40 && target.z < 30 && target.z > -30;
+    if (inside) cam.y = Math.min(cam.y, this.ceiling);
     cam.y = Math.max(cam.y, 0.25);
     this.camera.lookAt(this.smoothFocus);
   }

@@ -1,41 +1,53 @@
 import { Character } from './Character.js';
+import { ANIM_NAMES, dq, dqa } from '@shared/constants.js';
 
-const lerpAngle = (a, b, k) => {
+export const lerpAngle = (a, b, k) => {
   let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * k;
 };
 
-const INTERP_DELAY = 120; // ms – hiển thị trễ 1 chút để luôn có 2 mẫu nội suy
+const INTERP_DELAY = 130; // ms – hiển thị trễ 1 chút để luôn có 2 mẫu nội suy
 
 /**
- * Người chơi khác: nhận snapshot từ server, nội suy vị trí/hướng giữa các mẫu để chuyển động mượt.
+ * Người chơi khác trong vùng nhìn thấy (AOI): tạo khi server báo "vào vùng", xóa khi "ra vùng".
+ * Nhận snapshot lượng tử hóa, nội suy vị trí/hướng giữa các mẫu để chuyển động mượt.
  */
 export class RemotePlayer {
-  constructor(data, scene) {
-    this.id = data.id;
-    this.userId = data.userId;
-    this.appearance = data.appearance;
-    this.char = new Character(data.appearance);
-    this.char.root.position.set(data.x, data.y || 0, data.z);
-    this.char.root.rotation.y = data.ry || 0;
-    scene.add(this.char.root);
-    this.buffer = [{ t: Date.now() - 1000, x: data.x, y: data.y || 0, z: data.z, ry: data.ry || 0 }];
-    this.anim = data.anim || 'idle';
-    this.eq = data.eq || null;
+  constructor(info, parent) {
+    this.nid = info.nid;
+    this.userId = info.uid;
+    this.appearance = info.a;
+    this.party = info.pt || null;
+    this.char = new Character(info.a);
+    if (info.g) this.char.setTag(info.g);
+    const x = dq(info.x);
+    const y = dq(info.y);
+    const z = dq(info.z);
+    const ry = dqa(info.r);
+    this.char.root.position.set(x, y, z);
+    this.char.root.rotation.y = ry;
+    parent.add(this.char.root);
+    this.buffer = [{ t: 0, x, y, z, ry }];
+    this.anim = ANIM_NAMES[info.an] || 'idle';
+    this.eq = info.eq || null;
+    this.dist = 0;
   }
 
   get position() {
     return this.char.root.position;
   }
 
-  push(t, x, y, z, ry, anim, eq) {
+  get name() {
+    return this.appearance.displayName;
+  }
+
+  push(t, qx, qy, qz, qr, an) {
     const last = this.buffer[this.buffer.length - 1];
     if (last && t <= last.t) return;
-    this.buffer.push({ t, x, y, z, ry });
+    this.buffer.push({ t, x: dq(qx), y: dq(qy), z: dq(qz), ry: dqa(qr) });
     if (this.buffer.length > 30) this.buffer.splice(0, this.buffer.length - 30);
-    this.anim = anim;
-    this.eq = eq;
+    this.anim = ANIM_NAMES[an] || 'idle';
   }
 
   setAppearance(app) {
@@ -46,7 +58,6 @@ export class RemotePlayer {
   update(dt, serverNow) {
     const renderT = serverNow - INTERP_DELAY;
     const buf = this.buffer;
-    // bỏ các mẫu quá cũ (giữ lại 1 mẫu trước renderT)
     while (buf.length > 2 && buf[1].t <= renderT) buf.shift();
     let x;
     let y;
@@ -69,7 +80,6 @@ export class RemotePlayer {
     }
     const root = this.char.root;
     const s = 1 - Math.exp(-dt * 20);
-    // teleport nếu lệch quá xa (vào máy tập / ra khỏi máy)
     if (Math.hypot(root.position.x - x, root.position.z - z) > 3) root.position.set(x, y, z);
     else {
       root.position.x += (x - root.position.x) * s;
@@ -83,5 +93,3 @@ export class RemotePlayer {
     this.char.dispose();
   }
 }
-
-export { lerpAngle };

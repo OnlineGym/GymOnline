@@ -8,7 +8,7 @@ import { h, uiRoot } from './dom.js';
  *  - Cụm nút phải: Tương tác / Chạy / Emote / Chat
  */
 export class MobileControls {
-  constructor(input, { onInteract, onEmote, onChat }) {
+  constructor(input, { onInteract, onEmote, onChat, onJump }) {
     this.input = input;
     const zone = h('div', { class: 'joystick-zone' });
     uiRoot().append(zone);
@@ -36,7 +36,14 @@ export class MobileControls {
     };
     this.chatBtn = h('button', { class: 'm-btn', onclick: onChat }, '💬');
     const emoteBtn = h('button', { class: 'm-btn', onclick: onEmote }, '😊');
-    this.el = h('div', { class: 'mobile-actions' }, this.interactBtn, this.runBtn, emoteBtn, this.chatBtn);
+    // nút nhảy (giữ được cho thách đấu plank: pointerdown/up)
+    const jumpBtn = h('button', { class: 'm-btn' }, '⤴️');
+    jumpBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      onJump?.(true);
+    });
+    jumpBtn.addEventListener('pointerup', () => onJump?.(false));
+    this.el = h('div', { class: 'mobile-actions' }, this.interactBtn, jumpBtn, this.runBtn, emoteBtn, this.chatBtn);
     uiRoot().append(this.el);
   }
 

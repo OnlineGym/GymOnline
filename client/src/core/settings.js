@@ -16,6 +16,8 @@ const defaults = {
   sfx: 0.8,
   showFps: false,
   cameraSensitivity: 1,
+  autoQuality: true, // tự giảm đồ họa khi FPS thấp
+  maxDetailed: 50, // số nhân vật hiển thị chi tiết tối đa
 };
 
 function load() {
