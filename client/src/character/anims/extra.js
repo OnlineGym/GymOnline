@@ -6,6 +6,7 @@ import { HIPS, SIT, arms, keyframes, walk, run, aerobic, sauna, idle, pos, TAU, 
  *   faceUp  : nằm ngửa (đầu về -Z)  | faceDown: nằm sấp (đầu về +Z)
  */
 const HALF_PI = Math.PI / 2;
+const LIE_H = -0.12; // nằm trên sàn (thấp hơn nằm trên ghế)
 const faceUp = (h = 0, tilt = 0) => ({ lieX: -HALF_PI + tilt, lieY: 0.28 + h, lieZ: 0.34 });
 const faceDown = (h = 0, tilt = 0) => ({ lieX: HALF_PI - tilt, lieY: 0.28 + h, lieZ: -0.34 });
 const sit = (extra) => ({ ...SIT, ...extra });
@@ -220,6 +221,42 @@ const swim = (t) => {
     headY: Math.sin(w) * 0.4,
   };
 };
+// Lặn: bơi ếch dưới nước – sải tay ra 2 bên, đạp chân kiểu ếch
+const dive = (t) => {
+  const w = t * 3.2;
+  const s = Math.sin(w);
+  return {
+    ...faceDown(-0.1, -0.15),
+    lArmX: -2.7 + pos(s) * 1.1,
+    rArmX: -2.7 + pos(s) * 1.1,
+    lArmZ: 0.2 + pos(s) * 1.2,
+    rArmZ: 0.2 + pos(s) * 1.2,
+    lElbow: -0.2 - pos(s) * 0.8,
+    rElbow: -0.2 - pos(s) * 0.8,
+    lLegZ: 0.15 + pos(-s) * 0.45,
+    rLegZ: 0.15 + pos(-s) * 0.45,
+    lKnee: pos(-s) * 1.3,
+    rKnee: pos(-s) * 1.3,
+    headX: -0.3,
+  };
+};
+// Đạp nước giữ đầu trên mặt nước
+const tread = (t) => ({
+  bounce: Math.sin(t * 3) * 0.03,
+  lArmX: -0.55,
+  rArmX: -0.55,
+  lArmZ: 1.15 + Math.sin(t * 4) * 0.3,
+  rArmZ: 1.15 - Math.sin(t * 4) * 0.3,
+  lElbow: -0.5,
+  rElbow: -0.5,
+  lLegX: -0.4 + Math.sin(t * 5) * 0.35,
+  rLegX: -0.4 - Math.sin(t * 5) * 0.35,
+  lKnee: 0.7 + Math.cos(t * 5) * 0.4,
+  rKnee: 0.7 - Math.cos(t * 5) * 0.4,
+  headX: -0.15,
+});
+// Đứng trên thang cuốn, tay vịn lan can
+const ride = (t) => ({ ...idle(t), rArmX: -0.35, rArmZ: 0.75, rElbow: -0.7, headY: Math.sin(t * 0.5) * 0.3 });
 const massageLie = (t) => ({ ...faceDown(0), bounce: Math.sin(t * 1.2) * 0.005, ...arms(0.1, 0.12, -0.1), eyes: 'closed' });
 const massageChair = (t) => sit({ spineX: -0.35, bounce: Math.sin(t * 30) * 0.004, headX: -0.15, ...arms(-0.3, 0.4, -0.5), eyes: 'closed' });
 const inbody = (t) => ({ headX: 0.2 + Math.sin(t) * 0.03, ...arms(-0.5, 0.5, -0.3) });
@@ -269,7 +306,88 @@ const coupleDance = (t) => ({
   eyes: 'happy',
 });
 
+// ---------------- TƯ THẾ NGHỈ (phím C / Z) ----------------
+// Ngồi bệt xuống sàn: duỗi chân, hai tay chống ra sau, ngả nhẹ người
+const sitFloor = (t) => {
+  const br = Math.sin(t * 1.6);
+  return {
+    hipsY: 0.1,
+    lLegX: -1.42,
+    rLegX: -1.38,
+    lKnee: 0.18,
+    rKnee: 0.32,
+    lLegZ: 0.16,
+    rLegZ: 0.16,
+    spineX: -0.22 + 0.015 * br,
+    headX: 0.12,
+    headY: Math.sin(t * 0.33) * 0.3,
+    bounce: 0.004 * br,
+    ...arms(0.62, 0.32, -0.05),
+  };
+};
+// Nằm ngửa thư giãn: tay gối sau đầu, một chân co
+const lieRest = (t) => {
+  const br = Math.sin(t * 1.3);
+  return {
+    ...faceUp(LIE_H),
+    lLegX: -0.55,
+    lKnee: 1.05,
+    rLegX: 0,
+    rKnee: 0.05,
+    lLegZ: 0.1,
+    rLegZ: 0.14,
+    spineX: 0.012 * br,
+    bounce: 0.006 * br,
+    headX: -0.1,
+    ...arms(-2.75, 0.55, -2.25),
+    eyes: Math.sin(t * 0.4) > -0.6 ? 'closed' : undefined,
+  };
+};
+
+// ---------------- PILATES ----------------
+// Reformer: nằm ngửa trên xe trượt, đạp chân vào thanh để đẩy xe ra xa
+const pilatesReformer = (_t, { p }) => ({
+  ...faceUp(-0.04),
+  lieZ: 0.34 - p * 0.24,
+  lLegX: -1.0 * (1 - p),
+  rLegX: -1.0 * (1 - p),
+  lKnee: 1.9 * (1 - p) + 0.05,
+  rKnee: 1.9 * (1 - p) + 0.05,
+  lLegZ: 0.08,
+  rLegZ: 0.08,
+  ...arms(0.05, 0.2, -0.1),
+});
+// Roll-up: từ nằm ngửa cuộn dần thân trên lên, hai tay vươn về phía chân
+const pilatesRollUp = (_t, { p }) => ({
+  ...faceUp(LIE_H),
+  spineX: p * 1.1,
+  headX: p * 0.25,
+  ...arms(-2.6 + p * 1.2, 0.2, -0.1),
+});
+// Teaser: ngồi chữ V giữ thăng bằng, chân nâng cao, tay song song với chân
+const pilatesTeaser = (t) => {
+  const w = Math.sin(t * 1.4);
+  return {
+    hipsY: 0.1,
+    lLegX: -1.9,
+    rLegX: -1.9,
+    lKnee: 0.1,
+    rKnee: 0.1,
+    lLegZ: 0.06,
+    rLegZ: 0.06,
+    spineX: -0.5 + 0.03 * w,
+    headX: 0.2,
+    bounce: 0.004 * w,
+    ...arms(-1.45, 0.12, -0.08),
+  };
+};
+
 export const EXTRA_ANIMS = {
+  pilatesReformer,
+  pilatesRollUp,
+  pilatesTeaser,
+  sitFloor,
+  lieRest,
   benchPress,
   spot,
   crossover,
@@ -325,6 +443,9 @@ export const EXTRA_ANIMS = {
   foamRoll,
   yogaFlow,
   swim,
+  dive,
+  tread,
+  ride,
   massageLie,
   massageChair,
   inbody,

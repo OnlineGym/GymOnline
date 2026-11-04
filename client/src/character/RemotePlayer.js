@@ -42,12 +42,13 @@ export class RemotePlayer {
     return this.appearance.displayName;
   }
 
-  push(t, qx, qy, qz, qr, an) {
+  push(t, qx, qy, qz, qr, an, pp = 0) {
     const last = this.buffer[this.buffer.length - 1];
     if (last && t <= last.t) return;
     this.buffer.push({ t, x: dq(qx), y: dq(qy), z: dq(qz), ry: dqa(qr) });
     if (this.buffer.length > 30) this.buffer.splice(0, this.buffer.length - 30);
     this.anim = ANIM_NAMES[an] || 'idle';
+    this.pp = pp;
   }
 
   setAppearance(app) {

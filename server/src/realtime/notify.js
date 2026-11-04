@@ -29,6 +29,13 @@ export function userLeave(userId, room) {
   io?.in(`user:${userId}`).socketsLeave(room);
 }
 
+// Đá mọi kết nối của 1 user (khóa tài khoản, đổi mật khẩu, xóa tài khoản)
+export function kickUser(userId, reason) {
+  if (!io) return;
+  io.to(`user:${userId}`).emit('session:kicked', { reason });
+  io.in(`user:${userId}`).disconnectSockets(true);
+}
+
 // Cập nhật ngoại hình/level cho người chơi đang online (instance local) và báo người xung quanh
 export function broadcastAppearance(userId, appearance) {
   manager?.updateAppearance(String(userId), appearance);

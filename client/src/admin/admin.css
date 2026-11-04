@@ -1,0 +1,45 @@
+:root { color-scheme: dark; --bg: #0b0f1a; --panel: #151b2b; --line: #2a3347; --text: #e5e9f2; --muted: #93a0b8; --cyan: #22d3ee; --red: #f87171; --amber: #fbbf24; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 'Be Vietnam Pro', system-ui, Arial, sans-serif; }
+#app { max-width: 1100px; margin: auto; padding: 16px; }
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; }
+h3 { margin: 22px 0 8px; }
+h4 { margin: 16px 0 4px; }
+a { color: var(--cyan); }
+.right { margin-left: auto; }
+.muted { color: var(--muted); }
+.hidden { display: none; }
+nav { display: flex; gap: 6px; margin: 14px 0; flex-wrap: wrap; }
+button { background: var(--cyan); color: #06222a; border: 1px solid var(--cyan); border-radius: 8px; padding: 6px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+button.danger { background: var(--red); border-color: var(--red); color: #2a0a0a; }
+button.warn { background: var(--amber); border-color: var(--amber); color: #2a1c02; }
+input { background: #0f1422; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font: inherit; flex: 1; min-width: 200px; }
+.row, .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+.actions { margin: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.card.hot { border-color: var(--red); }
+.card b { display: block; font-size: 26px; }
+.card span { color: var(--muted); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; display: block; overflow-x: auto; }
+tbody { display: table; width: 100%; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.tag { display: inline-block; border: 1px solid var(--line); border-radius: 99px; padding: 0 8px; font-size: 12px; margin: 0 2px; }
+.tag.bad { border-color: var(--red); color: var(--red); }
+.tag.warn { border-color: var(--amber); color: var(--amber); }
+.report { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.report-head { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.report p { margin: 6px 0; }
+.msg { padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; }
+.msg.good { background: #0d3b2a; }
+.msg.bad { background: #4a1616; }
+.backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: flex-start; padding: 24px 12px; overflow-y: auto; }
+.dialog { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; width: min(640px, 100%); }
+.dialog .close { position: absolute; top: 10px; right: 10px; }
+.dialog h3 { margin-top: 0; padding-right: 40px; }
+.dialog ul { padding-left: 18px; margin: 4px 0; word-break: break-word; }
+.denied { text-align: center; padding: 60px 16px; }

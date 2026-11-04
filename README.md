@@ -163,8 +163,101 @@ Mọi route (trừ đăng ký/đăng nhập) cần header `Authorization: Bearer
 ## 7. Hiệu năng
 
 - Geometry tĩnh được gộp theo material (`bakeStatic`), số draw call giảm từ hàng nghìn xuống vài chục.
-- 3 mức đồ họa trong ⚙️ Cài đặt:
+- 4 mức đồ họa trong ⚙️ Cài đặt, kèm tự giảm độ phân giải 3D khi FPS thấp:
   - **Thấp** (mặc định trên mobile): tắt bóng đổ và đèn màu, giảm độ phân giải.
   - **Trung bình**: bóng đổ 1024.
-  - **Cao**: bóng đổ 2048, gương phòng aerobic phản chiếu thật (Reflector), nhiều hạt hơi nước.
+  - **Cao**: bóng đổ 1536, AO, gương phòng aerobic phản chiếu thật khi ở gần.
+  - **Cực cao**: bóng đổ 2048, độ phân giải tới 1.5x.
 - Minimap vẽ nền một lần, sau đó chỉ cập nhật chấm người chơi khoảng 10 lần/giây. Vị trí người chơi khác được nội suy, hiển thị trễ khoảng 120ms để chuyển động mượt.
+
+## 8. Tài khoản, quản trị và email
+
+### Email
+
+Quên mật khẩu, xác minh email và đổi email cần gửi mail. Cấu hình trong `server/.env`:
+
+```
+CLIENT_URL=http://localhost:5173
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=<gmail của bạn>
+SMTP_PASS=<App Password của Gmail>
+MAIL_FROM=Gym Online <gmail của bạn>
+```
+
+Để trống `SMTP_HOST`: không gửi mail thật, link được in ra log server để thử khi phát triển.
+
+### Trang quản trị
+
+Cấp quyền cho một tài khoản đã đăng ký rồi mở `/admin.html` (hoặc nút 🛠️ trong game):
+
+```bash
+cd server
+npm run admin -- <tên đăng nhập>            # cấp quyền
+npm run admin -- <tên đăng nhập> --remove   # gỡ quyền
+```
+
+Trang này có: tổng quan, hàng chờ báo cáo vi phạm, tìm người chơi, khóa tài khoản, cấm chat, thông báo toàn server, nhật ký thao tác.
+
+### API bổ sung
+
+| Phương thức | Đường dẫn | Mô tả |
+|---|---|---|
+| POST | `/api/auth/forgot`, `/api/auth/reset` | Quên / đặt lại mật khẩu |
+| POST | `/api/auth/verify`, `/api/auth/resend-verify` | Xác minh email |
+| POST | `/api/auth/change-password`, `/api/auth/change-email` | Đổi mật khẩu, đổi email |
+| POST | `/api/auth/logout-all`, `/api/auth/refresh` | Đăng xuất mọi thiết bị, gia hạn phiên |
+| DELETE | `/api/auth/account` | Xóa tài khoản |
+| GET/POST | `/api/daily`, `/api/daily/checkin`, `/api/daily/quests/:key/claim` | Nhiệm vụ, điểm danh |
+| POST | `/api/character/tutorial` | Hoàn thành hướng dẫn tân thủ |
+| PATCH/DELETE | `/api/guilds/mine` | Sửa, giải tán CLB |
+| POST | `/api/guilds/transfer` | Chuyển quyền chủ CLB |
+| GET/POST | `/api/admin/*` | Quản trị (chỉ role admin) |
+
+`POST /api/gifts` nhận thêm `wantCoins`, `wantItem`, `wantQty` để trao đổi 2 chiều.
+
+## 9. Kiểm thử
+
+```bash
+cd server
+npm test                                     # API, dùng database riêng gym_online_test (MongoDB phải đang chạy)
+npm run loadtest -- --bots 1000 --ramp 40 --report   # kết quả ghi vào tools/loadtest-report.md
+```
+
+Test tải cần `LOADTEST_SECRET` và `ADMIN_SECRET` trong `server/.env`. Một tiến trình Node chạy ổn tới khoảng 500 người; 1000 người đã dùng hết 1 nhân CPU (tick vượt ngân sách 66ms), nên khi đông hãy chạy nhiều tiến trình bằng `npm run start:cluster` kèm Redis.
+
+## 10. Trước khi mở công khai
+
+- Điền email liên hệ và nhờ người có chuyên môn pháp lý rà soát `client/public/terms.html`, `client/public/privacy.html` (đang là bản nháp).
+- Đặt `JWT_SECRET` ngẫu nhiên, cấu hình SMTP thật, `CLIENT_URL` và `CLIENT_ORIGIN` đúng tên miền.
+
+## 11. Minigame từng máy
+
+Mỗi nhóm máy có trò riêng, cấu hình ở bảng `MACHINE_GAME` trong `client/src/core/minigames.js`. Thêm trò mới: viết class có `key`, `pointer`, `update`, `draw`, đăng ký vào `GAMES`, thêm bot chơi đúng luật trong `server/test/minigames.test.js`.
+
+| Trò | Thao tác | Máy |
+|---|---|---|
+| Vũ điệu | Nhập chuỗi mũi tên, SPACE đúng nhịp | Lớp Aerobic |
+| Mũi tên theo nhạc | Mũi tên chạy tới vạch | Lớp Spin |
+| Tư thế | Giữ đúng 2 phím tới hết hơi thở | Lớp Yoga |
+| Nhảy rào | SPACE nhảy, giữ S cúi | Máy chạy bộ |
+| Kéo cáp | Kéo chuột vào vùng đích | Kéo xô, chèo cáp, xà đơn, face pull... |
+| Click vòng tròn | Click khi vòng co khít | Máy tay, tạ đơn, đấm đích |
+| Kim quét | Bấm đúng vùng xanh 3 lần | Bench, Smith, power rack, hack squat |
+| Cân 2 bên | Giữ A + D cho 2 thanh trong vùng | Ép ngực, cáp chéo, hip abduction... |
+| Bơm áp lực | Nhấp SPACE giữ kim trong vùng | Đạp chân, đá đùi, cuốn đùi |
+| Bật nảy | SPACE lúc chạm sàn | Bắp chân, plyo box |
+| Tích lực | Giữ rồi thả trong vùng | Deadlift, kettlebell, lật lốp, slam ball... |
+| Bám đường | Rê chuột hoặc W/S theo sóng | Lateral raise, dip, TRX, roll-up... |
+| Vòng quay | Bấm khi kim qua cung sáng | Xoay người, ghế gập bụng |
+| Xếp tháp | Thả khối cho khớp | Gập bụng, Reformer |
+| 4 làn | A S J K khi khối chạm vạch | Leo thang, elliptical |
+| Sang số | W/S khớp độ dốc | Xe đạp |
+| Mái chèo | Giữ, thả ở đỉnh lực | Chèo thuyền, ski erg |
+| Dồn sức | Bấm nhanh, tránh quá nhiệt | Assault bike, xe trượt |
+| Nhảy dây | SPACE đúng nhịp dây | Dây nhảy |
+| Bóng tốc độ | J/K 2 bên theo nhịp | Speed bag |
+| Lăn cơ | Rê tới điểm căng rồi giữ yên | Foam roller, bàn massage |
+
+Các trò gốc vẫn dùng cho: đẩy ngực và tricep (giữ/thả), thảm plank (giữ thăng bằng), bao cát (chuỗi đòn), dây thừng (xen kẽ A/D), sauna (hít thở).
+

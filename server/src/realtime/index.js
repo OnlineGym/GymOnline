@@ -2,7 +2,8 @@ import mongoose from 'mongoose';
 import { Server } from 'socket.io';
 import msgpackParser from 'socket.io-msgpack-parser';
 import { createAdapter } from '@socket.io/redis-adapter';
-import { verifyToken } from '../middleware/auth.js';
+import { verifyToken, checkAccount } from '../middleware/auth.js';
+import User from '../models/User.js';
 import { corsOptions } from '../config/cors.js';
 import env from '../config/env.js';
 import Character from '../models/Character.js';
@@ -10,7 +11,7 @@ import ChatMessage, { dmChannel } from '../models/ChatMessage.js';
 import { Friendship, Party, Guild } from '../models/social.js';
 import { EQUIPMENT, slotInfo } from '../config/equipment.js';
 import {
-  ANIM_NAMES, EMOTES, FLOORS, SPAWN, SPAWN_FLOOR, TRANSIT_ARRIVAL, FLOOR_BOUNDS, WORLD_BOUNDS, AOI, MAX_SPEED, activeEvents,
+  ANIM_NAMES, EMOTES, MUSIC_ROOMS, FLOORS, SPAWN, SPAWN_FLOOR, TRANSIT_ARRIVAL, FLOOR_BOUNDS, WORLD_BOUNDS, AOI, MAX_SPEED, activeEvents,
 } from '../../../shared/constants.js';
 import { filterProfanity, sanitizeMessage } from '../utils/profanity.js';
 import { startSession, endSession } from '../services/workoutSessions.js';
@@ -20,12 +21,22 @@ import { listChannels } from '../services/channelRegistry.js';
 import { ChannelManager } from './ChannelManager.js';
 import { createPlayer } from './Channel.js';
 import { SocketRateLimiter } from './rateLimit.js';
+import { MusicRoom } from './musicRoom.js';
 import { setIO, setManager } from './notify.js';
 import { redis, redisSub } from '../services/redis.js';
 
 let manager = null;
 export const getChannelManager = () => manager;
 
+// Vị trí vừa rời đi (đổi channel/kết nối lại): mới hơn bản đã ghi trong DB lúc bắt tay
+const recentPos = new Map();
+/**
+ * Kết nối rớt mà tab chưa báo đóng (trình duyệt đóng băng tab nền, mất mạng, điện thoại khóa màn hình):
+ * giữ nhân vật thêm một lúc thay vì xóa ngay. Tắt tab thì client gửi 'bye' nên offline tức thì.
+ */
+const GRACE_MS = 120000;
+const CLEAN_REASONS = new Set(['server namespace disconnect', 'client namespace disconnect', 'server shutting down']);
+const ghosts = new Map(); // userId -> { finalize, timer }
 const EQ_ID = /^f([0-4]):([a-z_]+)_(\d+)(#(\d))?$/;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -35,7 +46,7 @@ export function initRealtime(httpServer) {
     cors: corsOptions,
     parser: msgpackParser, // nén payload nhị phân (nhỏ hơn JSON ~30-50%)
     pingInterval: 10000,
-    pingTimeout: 8000,
+    pingTimeout: 20000, // tab nền phản hồi chậm hơn, đừng vội coi là mất kết nối
     maxHttpBufferSize: 1e5,
     perMessageDeflate: false, // tắt nén deflate để tiết kiệm CPU khi đông người
   });
@@ -61,6 +72,8 @@ export function initRealtime(httpServer) {
       }
       if (!a.token) return next(new Error('UNAUTHORIZED'));
       const payload = verifyToken(a.token);
+      const bad = await checkAccount(payload);
+      if (bad) return next(new Error(bad.code));
       const character = await Character.findOne({ userId: payload.sub });
       if (!character) return next(new Error('NO_CHARACTER'));
       socket.data.userId = String(payload.sub);
@@ -111,6 +124,12 @@ async function onConnection(io, socket) {
 
   // Một tài khoản chỉ online 1 nơi: đá phiên cũ (xuyên instance qua Redis adapter)
   if (!bot) {
+    // Quay lại trong thời gian giữ chỗ: bỏ nhân vật cũ, xuất hiện lại đúng chỗ đó
+    const ghost = ghosts.get(userId);
+    if (ghost) {
+      clearTimeout(ghost.timer);
+      ghost.finalize();
+    }
     io.to(`user:${userId}`).emit('session:kicked', { reason: 'Tài khoản đăng nhập ở nơi khác' });
     io.in(`user:${userId}`).disconnectSockets(true);
   }
@@ -134,8 +153,19 @@ async function onConnection(io, socket) {
   let z = SPAWN.z + (Math.random() - 0.5) * 3;
   if (bot) {
     f = Math.floor(Math.random() * FLOORS.length);
-    x = (Math.random() - 0.5) * 60;
-    z = (Math.random() - 0.5) * 40;
+    x = -15 + Math.random() * 50;
+    z = (Math.random() - 0.5) * 36;
+  }
+  // Quay lại đúng chỗ lần trước (vị trí không còn hợp lệ thì về sảnh)
+  if (!bot && !goto) {
+    const last = recentPos.get(userId) || socket.data.character?.lastPos;
+    recentPos.delete(userId);
+    const b = FLOOR_BOUNDS;
+    if (last && last.f >= 0 && last.f < FLOORS.length && Number.isFinite(last.x) && Number.isFinite(last.z) && last.x > b.minX && last.x < b.maxX && last.z > b.minZ && last.z < b.maxZ) {
+      f = last.f;
+      x = last.x;
+      z = last.z;
+    }
   }
   if (goto) {
     f = goto.player.f;
@@ -167,6 +197,10 @@ async function onConnection(io, socket) {
   }
 
   const p = createPlayer({ socket, userId, appearance: socket.data.appearance, bot, f, x, z, ry: Math.PI, extra });
+  if (!bot) {
+    const mod = await User.findById(userId).select('chatMutedUntil').lean();
+    p.adminMutedUntil = mod?.chatMutedUntil ? new Date(mod.chatMutedUntil).getTime() : 0;
+  }
   p.limiter = new SocketRateLimiter();
   channel.add(p);
   socket.data.player = p;
@@ -241,7 +275,8 @@ async function onConnection(io, socket) {
     }
     p.x = cx;
     p.z = cz;
-    p.y = clamp(num(s.y, 0), -1.5, 3);
+    p.y = clamp(num(s.y, 0), -5, 5); // đi trên dốc thang (tới +4.45m) / lặn trong hồ (-2.4m)
+    p.pp = typeof s.p === 'number' ? Math.round(clamp(s.p, 0, 1) * 100) : 0; // nhịp động tác cho người xem
     p.ry = num(s.ry, p.ry);
     const an = Number.isInteger(s.a) && s.a >= 0 && s.a < ANIM_NAMES.length ? s.a : 0;
     p.anim = an;
@@ -250,7 +285,7 @@ async function onConnection(io, socket) {
   });
 
   // ----- Đổi tầng (thang máy / cầu thang / thang cuốn) -----
-  on('floor:change', ({ to, via }, ack) => {
+  on('floor:change', ({ to, via, x: ax, z: az }, ack) => {
     const target = Number(to);
     if (!Number.isInteger(target) || target < 0 || target >= FLOORS.length || target === p.f) return ack({ ok: false, message: 'Tầng không hợp lệ' });
     const nearHub = p.x > 22 && p.x < 41 && Math.abs(p.z) < 12;
@@ -258,8 +293,10 @@ async function onConnection(io, socket) {
     if ((via === 'stairs' || via === 'escalator') && Math.abs(target - p.f) !== 1) return ack({ ok: false, message: 'Cầu thang chỉ đi được 1 tầng' });
     if (p.ix) return ack({ ok: false, message: 'Đang trong thách đấu' });
     endSession(userId);
-    const nx = TRANSIT_ARRIVAL.x + (Math.random() - 0.5) * 2;
-    const nz = TRANSIT_ARRIVAL.z + (Math.random() - 0.5) * 4;
+    // Thang bộ / thang cuốn / cabin thang máy: đến đúng vị trí đầu thang (phải nằm trong sảnh thang)
+    const okPos = typeof ax === 'number' && typeof az === 'number' && ax > 22 && ax < 40 && Math.abs(az) < 11;
+    const nx = okPos ? ax : TRANSIT_ARRIVAL.x + (Math.random() - 0.5) * 2;
+    const nz = okPos ? az : TRANSIT_ARRIVAL.z + (Math.random() - 0.5) * 4;
     channel.setFloor(p, target, nx, nz);
     p.teleportUntil = Date.now() + 4000;
     if (!bot) updatePresence(userId, { floor: target, activity: '' }).catch(() => {});
@@ -317,6 +354,25 @@ async function onConnection(io, socket) {
     if (!EMOTES.includes(name)) return;
     for (const o of channel.nearby(p, AOI.mid)) if (o !== p) o.socket.emit('emote', { nid: p.nid, name });
   });
+
+  // ----- Phòng nhạc Aerobic (YouTube nhúng, đồng bộ theo channel) -----
+  // Mỗi phòng nhạc (aerobic, yoga...) 1 hàng đợi riêng; null nếu tên phòng không hợp lệ
+  const music = (room) => {
+    if (!Object.hasOwn(MUSIC_ROOMS, room)) return null;
+    channel.music ||= {};
+    return (channel.music[room] ||= new MusicRoom(channel, room));
+  };
+  on('music:get', async ({ room }, ack) => {
+    const m = music(room);
+    if (!m) return ack({ ok: false });
+    await m.touch();
+    ack({ ok: true, state: m.state() });
+  });
+  on('music:add', async ({ room, url }, ack) => ack((await music(room)?.add(p, url)) || { ok: false, message: 'Phòng không hợp lệ' }));
+  on('music:skip', ({ room }, ack) => ack(music(room)?.skip(p) || { ok: false, message: 'Phòng không hợp lệ' }));
+  on('music:ended', ({ room, id }) => music(room)?.ended(p, String(id || '')));
+  on('music:error', ({ room, id }) => music(room)?.error(p, String(id || '')));
+  on('music:seed', ({ room, ids }) => music(room)?.seed(p, ids));
 
   // ----- Chat: kênh channel / gần (AOI) / party / guild / riêng -----
   on('chat', async ({ channel: chName, content: raw, to }, ack) => {
@@ -421,10 +477,32 @@ async function onConnection(io, socket) {
     ack({ ok: true, players: list });
   });
 
-  socket.on('disconnect', () => {
+  socket.on('bye', () => {
+    p.saidBye = true;
+  });
+
+  let finalized = false;
+  const finalize = () => {
+    if (finalized) return;
+    finalized = true;
+    if (ghosts.get(userId)?.finalize === finalize) ghosts.delete(userId);
+    if (!bot) {
+      // Đang ở trên thang/dưới nước hoặc đang nhảy thì lưu điểm an toàn ở sảnh thang của tầng đó
+      const safe = Math.abs(p.y || 0) < 0.05;
+      const pos = { f: p.f, x: safe ? p.x : TRANSIT_ARRIVAL.x, z: safe ? p.z : TRANSIT_ARRIVAL.z };
+      recentPos.set(userId, pos);
+      setTimeout(() => recentPos.delete(userId), 30000).unref();
+      Character.updateOne({ userId }, { $set: { lastPos: pos } }).catch(() => {});
+    }
     channel.remove(p);
     endSession(userId);
     if (!bot) clearPresence(userId).catch(() => {});
+  };
+
+  socket.on('disconnect', (reason) => {
+    if (bot || p.saidBye || CLEAN_REASONS.has(reason)) return finalize();
+    ghosts.set(userId, { finalize, timer: setTimeout(finalize, GRACE_MS).unref() });
+    return undefined;
   });
 }
 
@@ -433,6 +511,7 @@ function chatAllowed(p, content) {
   const c = p.chat;
   const now = Date.now();
   c.times = c.times.filter((t) => now - t < 8000);
+  if (p.adminMutedUntil > now) return `🔇 Bạn đang bị cấm chat thêm ${Math.ceil((p.adminMutedUntil - now) / 60000)} phút`;
   if (c.mutedUntil > now) return `Bạn đang bị tạm khóa chat ${Math.ceil((c.mutedUntil - now) / 1000)}s vì spam`;
   if (c.times.length && now - c.times[c.times.length - 1] < 700) return 'Bạn gửi tin quá nhanh';
   if (c.times.length >= 5) {

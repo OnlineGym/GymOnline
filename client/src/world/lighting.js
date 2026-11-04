@@ -9,22 +9,25 @@ import { quality, onSettingsChange } from '../core/settings.js';
 export function setupLighting(scene) {
   const hemi = new THREE.HemisphereLight('#ffffff', '#c9b9a0', 1.35);
   scene.add(hemi);
-  const ambient = new THREE.AmbientLight('#ffffff', 0.25);
+  const ambient = new THREE.AmbientLight('#ffffff', 0.12);
   scene.add(ambient);
 
   const sun = new THREE.DirectionalLight('#fff6e5', 1.9);
   const OFFSET = new THREE.Vector3(10, 30, 14);
+  const OFFSET_INDOOR = new THREE.Vector3(3, 30, 5); // trong nhà: nguồn sáng gần như từ đèn trần
+  let offset = OFFSET_INDOOR;
   sun.position.copy(OFFSET);
   sun.castShadow = true;
   const cam = sun.shadow.camera;
-  cam.left = -22;
-  cam.right = 22;
-  cam.top = 22;
-  cam.bottom = -22;
+  cam.left = -20;
+  cam.right = 20;
+  cam.top = 20;
+  cam.bottom = -20;
   cam.near = 5;
   cam.far = 70;
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.02;
+  sun.shadow.intensity = 0.72;
   scene.add(sun, sun.target);
 
   const applyShadowSize = () => {
@@ -44,31 +47,48 @@ export function setupLighting(scene) {
   scene.add(lightA, lightB);
   const discoColors = ['#f472b6', '#22d3ee', '#a3e635', '#facc15', '#a78bfa'].map((c) => new THREE.Color(c));
   let floorId = 1;
+  let frame = 0;
+  let lastX = NaN;
+  let lastZ = NaN;
   const PRESETS = {
-    0: { a: { color: '#38bdf8', pos: [-21, 3, -16], i: 6 }, b: { color: '#ff8a3d', pos: [4, 3, -23], i: 7 } },
-    1: { a: { color: '#22d3ee', pos: [-10, 3.2, -14], i: 3 }, b: { color: '#f97316', pos: [32, 3, 22], i: 5 } },
-    2: { a: { color: '#f43f5e', pos: [4, 3.2, 20], i: 5 }, b: { color: '#ffffff', pos: [-20, 3.2, -10], i: 2 } },
-    3: { a: { color: '#f472b6', pos: [-28, 3.2, 18], i: 9, disco: true }, b: { color: '#ef4444', pos: [14, 3.2, 18], i: 7, pulse: true } },
+    0: { a: { color: '#38bdf8', pos: [-6, 3, -12], i: 6 }, b: { color: '#ff8a3d', pos: [10.5, 3, -16], i: 7 } },
+    1: { a: { color: '#22d3ee', pos: [2, 3.2, -10], i: 3 }, b: { color: '#f97316', pos: [32, 3, 16], i: 5 } },
+    2: { a: { color: '#f43f5e', pos: [11, 3.2, 15], i: 5 }, b: { color: '#ffffff', pos: [-6, 3.2, -8], i: 2 } },
+    3: { a: { color: '#f472b6', pos: [-10.5, 3.2, 14], i: 9, disco: true }, b: { color: '#ef4444', pos: [17, 3.2, 14], i: 7, pulse: true } },
     4: { a: { color: '#ffffff', pos: [0, 10, 0], i: 0 }, b: { color: '#ffffff', pos: [0, 10, 0], i: 0 } },
   };
 
   return {
     sun,
+    // Bóng đổ cập nhật 20 lần/giây (hoặc khi vùng bóng dịch chuyển): cảnh đa phần đứng yên nên mắt không thấy khác
+    shadowDirty: true,
     setFloor(id) {
       floorId = id;
+      lastX = NaN; // đổi tầng: vẽ lại bóng ngay
       const P = PRESETS[id];
       lightA.color.set(P.a.color);
       lightA.position.set(...P.a.pos);
       lightB.color.set(P.b.color);
       lightB.position.set(...P.b.pos);
-      hemi.intensity = id === 4 ? 1.6 : 1.35;
-      sun.intensity = id === 4 ? 2.6 : 1.9;
+      offset = id === 4 ? OFFSET : OFFSET_INDOOR;
+      // Mức có phản chiếu môi trường: để ánh sáng môi trường gánh phần chiếu sáng nền, tăng độ tương phản
+      const ibl = quality().envProbe;
+      hemi.intensity = id === 4 ? (ibl ? 0.75 : 1.3) : id === 0 ? (ibl ? 0.6 : 0.9) : ibl ? 1.0 : 0.72;
+      ambient.intensity = ibl ? 0.16 : 0.18;
+      sun.intensity = id === 4 ? 2.0 : id === 0 ? 1.1 : ibl ? 1.9 : 1.1;
     },
     update(_dt, t, player) {
       if (player) {
         // khung bóng đổ đi theo người chơi
-        sun.target.position.set(player.x, 0, player.z);
-        sun.position.set(player.x + OFFSET.x, OFFSET.y, player.z + OFFSET.z);
+        // Khung bóng dịch theo bậc 0.5m để cạnh bóng không rung khi đi bộ
+        const sx = Math.round(player.x * 2) / 2;
+        const sz = Math.round(player.z * 2) / 2;
+        sun.target.position.set(sx, 0, sz);
+        sun.position.set(sx + offset.x, offset.y, sz + offset.z);
+        frame++;
+        this.shadowDirty = sx !== lastX || sz !== lastZ || frame % 3 === 0;
+        lastX = sx;
+        lastZ = sz;
       }
       const on = quality().pointLights;
       const P = PRESETS[floorId];

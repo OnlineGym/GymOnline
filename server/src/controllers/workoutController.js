@@ -11,11 +11,13 @@ import { expToNext, EQUIPMENT } from '../config/equipment.js';
 import { broadcastAppearance, notifyRoom, notifyUser } from '../realtime/notify.js';
 import { invalidate } from '../services/cache.js';
 import { partyProgress } from './socialController.js';
+import { bump } from '../services/quests.js';
 
 export const createWorkout = asyncHandler(async (req, res) => {
   const { equipmentType, durationSec, reps } = req.body;
   const slot = Number(req.body.slot) || 0;
   const sync = typeof req.body.sync === 'number' ? req.body.sync : 0;
+  const form = typeof req.body.form === 'number' ? req.body.form : 0;
 
   // Đối chiếu với phiên tập do socket ghi nhận (người chơi phải thực sự khóa máy)
   const session = consumeSession(req.userId, equipmentType, slot);
@@ -32,9 +34,12 @@ export const createWorkout = asyncHandler(async (req, res) => {
     partners: session.partners,
     inParty,
     sync,
+    form,
+    active: typeof req.body.active === 'number' ? req.body.active : undefined,
   });
   if (!reward) throw new HttpError(400, 'Loại máy tập không hợp lệ');
   if (reward.duration < 3) throw new HttpError(400, 'Buổi tập quá ngắn (tối thiểu 3 giây)');
+  if (!reward.reps && reward.active < 2) throw new HttpError(400, 'Bạn chưa tập gì nên buổi này không được tính');
 
   const prevLevel = character.level;
   const levelsUp = applyExp(character, reward.exp);
@@ -62,6 +67,10 @@ export const createWorkout = asyncHandler(async (req, res) => {
   });
 
   if (levelsUp > 0) broadcastAppearance(req.userId, character.appearance());
+  bump(req.userId, 'workouts', 1);
+  bump(req.userId, 'calories', reward.calories);
+  bump(req.userId, 'minutes', reward.active / 60);
+  bump(req.userId, `stat_${reward.stat}`, 1);
   const achievements = await checkCharacter(character, { inParty, golden: reward.bonuses.includes('golden') });
 
   // Tiến độ mục tiêu chung của party

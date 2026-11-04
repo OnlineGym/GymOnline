@@ -59,14 +59,19 @@ export class Input {
     if (down) {
       this.keys.add(e.code);
       if (e.repeat) return;
+      this.emit('key', e.code, true);
+      // Phím mũi tên/A/D dùng cho minigame: chặn cuộn trang
+      if (e.code.startsWith('Arrow')) e.preventDefault();
+      // Phím người chơi đã đổi được kiểm tra trước; các phím còn lại cố định
+      const K = settings.keys;
+      const handled = { [K.interact]: 'interact', [K.emote]: 'emoteWheel', [K.map]: 'map', [K.player]: 'interactPlayer', [K.inventory]: 'inventory', [K.social]: 'social', [K.finder]: 'finder', [K.quests]: 'quests' }[e.code];
+      if (handled) {
+        this.emit(handled);
+        return;
+      }
+      if (e.code === K.sit) return void this.emit('pose', 'sitFloor');
+      if (e.code === K.lie) return void this.emit('pose', 'lieRest');
       switch (e.code) {
-        case 'KeyE':
-          this.emit('interact');
-          break;
-        case 'KeyQ':
-        case 'KeyG':
-          this.emit('emoteWheel');
-          break;
         case 'Enter':
           e.preventDefault();
           this.emit('chat');
@@ -74,24 +79,9 @@ export class Input {
         case 'Escape':
           this.emit('escape');
           break;
-        case 'KeyM':
-          this.emit('map');
-          break;
         case 'Space':
           e.preventDefault();
           this.emit('space');
-          break;
-        case 'KeyF':
-          this.emit('interactPlayer');
-          break;
-        case 'KeyI':
-          this.emit('inventory');
-          break;
-        case 'KeyO':
-          this.emit('social');
-          break;
-        case 'KeyN':
-          this.emit('finder');
           break;
         case 'KeyJ':
           this.emit('spar', 'punch');
@@ -107,6 +97,7 @@ export class Input {
       }
     } else {
       this.keys.delete(e.code);
+      this.emit('key', e.code, false);
       if (e.code === 'Space') this.emit('spaceUp');
     }
   }
@@ -178,10 +169,11 @@ export class Input {
     let x = 0;
     let y = 0;
     const k = this.keys;
-    if (k.has('KeyW') || k.has('ArrowUp')) y += 1;
-    if (k.has('KeyS') || k.has('ArrowDown')) y -= 1;
-    if (k.has('KeyD') || k.has('ArrowRight')) x += 1;
-    if (k.has('KeyA') || k.has('ArrowLeft')) x -= 1;
+    const K = settings.keys;
+    if (k.has(K.forward) || k.has('ArrowUp')) y += 1;
+    if (k.has(K.back) || k.has('ArrowDown')) y -= 1;
+    if (k.has(K.right) || k.has('ArrowRight')) x += 1;
+    if (k.has(K.left) || k.has('ArrowLeft')) x -= 1;
     x += this.joy.x;
     y += this.joy.y;
     const len = Math.hypot(x, y);
@@ -193,7 +185,7 @@ export class Input {
   }
 
   isRunning() {
-    return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.mobileRun;
+    return this.keys.has(settings.keys.run) || this.mobileRun;
   }
 
   consumeLook() {

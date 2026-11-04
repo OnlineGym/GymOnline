@@ -7,14 +7,22 @@ import { isMobile } from '../core/device.js';
  * Bản đồ toàn tòa nhà: tab theo tầng, bấm vào khu/phòng để đặt chỉ đường (waypoint).
  * Có danh sách phòng của tầng để chọn nhanh trên mobile.
  */
+// Bản đồ đang mở: gọi lại (bấm M lần nữa) thì đóng thay vì mở thêm
+let current = null;
+
 export function openBigMap({ building, equipment, currentFloor, self, friends, onWaypoint }) {
+  if (current) {
+    current.close();
+    return;
+  }
   let floor = currentFloor;
-  const scale = isMobile() ? 4 : 8;
+  const scale = isMobile() ? 5 : 10;
   const tabs = h('div', { class: 'tabs' });
   const canvasWrap = h('div', { class: 'bigmap-wrap' });
   const roomList = h('div', { class: 'room-list' });
   const body = h('div', {}, tabs, canvasWrap, h('div', { class: 'muted', style: { fontSize: '12px', margin: '6px 0' } }, 'Bấm vào bản đồ hoặc tên khu để chỉ đường • Vàng: máy tập • Xanh: thang máy/cầu thang'), roomList);
-  const m = openModal('🗺️ Bản đồ tòa nhà', body, { width: 760 });
+  const m = openModal('🗺️ Bản đồ tòa nhà', body, { width: 760, onClose: () => (current = null) });
+  current = m;
 
   const render = () => {
     tabs.innerHTML = '';

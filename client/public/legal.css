@@ -1,0 +1,20 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #0b0f1a; color: #e5e9f2; font: 16px/1.65 'Be Vietnam Pro', system-ui, Arial, sans-serif; }
+main { max-width: 760px; margin: auto; padding: 32px 16px 60px; }
+a { color: #22d3ee; }
+h1 { font-size: 30px; margin: 0 0 4px; }
+h2 { font-size: 19px; margin-top: 28px; }
+.muted { color: #93a0b8; }
+.note { border: 1px solid #fbbf24; color: #fde68a; border-radius: 10px; padding: 10px 14px; margin: 16px 0; font-size: 14px; }
+nav { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; font-size: 14px; }
+.hero { padding: 40px 0 16px; }
+.logo { font-size: 44px; font-weight: 800; letter-spacing: 1px; }
+.logo span { color: #22d3ee; }
+.tag { font-size: 19px; color: #c9d2e3; margin: 6px 0 22px; }
+.cta { display: inline-block; background: #22d3ee; color: #06222a; font-weight: 800; padding: 13px 28px; border-radius: 10px; text-decoration: none; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 30px; }
+.card { background: #151b2b; border: 1px solid #2a3347; border-radius: 12px; padding: 14px 16px; }
+.card b { display: block; margin-bottom: 4px; }
+.card span { color: #93a0b8; font-size: 14px; }
+footer { margin-top: 40px; font-size: 14px; color: #93a0b8; }

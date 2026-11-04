@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getCharacter, upsertCharacter } from '../controllers/characterController.js';
+import { getCharacter, upsertCharacter, finishTutorial } from '../controllers/characterController.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody, rules, HEX_COLOR } from '../middleware/validate.js';
 import { HAIR_STYLES, OUTFIT_STYLES, GENDERS } from '../models/Character.js';
@@ -9,6 +9,7 @@ const router = Router();
 const color = (label) => rules.string({ pattern: HEX_COLOR, label });
 
 router.get('/', requireAuth, getCharacter);
+router.post('/tutorial', requireAuth, finishTutorial);
 
 router.put(
   '/',

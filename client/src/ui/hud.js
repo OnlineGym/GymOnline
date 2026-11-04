@@ -1,3 +1,4 @@
+import { settings, keyLabel as keyName } from '../core/settings.js';
 import { h, uiRoot, fmtTime } from './dom.js';
 import { STAT_LABELS, STAT_ICONS, STAT_COLORS } from '../equipment/config.js';
 import { ITEMS, expToNext, FLOORS } from '@shared/constants.js';
@@ -9,20 +10,35 @@ import { isMobile } from '../core/device.js';
  */
 const MENU = [
   ['🗺️', 'map', 'Bản đồ tòa nhà (M)'],
-  ['🔍', 'finder', 'Tìm máy trống (F)'],
+  ['🔍', 'finder', 'Tìm máy trống (N)'],
   ['👥', 'social', 'Bạn bè / Party / CLB (O)'],
   ['📍', 'nearby', 'Người xung quanh'],
   ['🎒', 'inventory', 'Túi đồ (I)'],
+  ['📋', 'quests', 'Nhiệm vụ & điểm danh (P)'],
+  ['🔔', 'notifications', 'Thông báo'],
   ['🏆', 'leaderboard', 'Bảng xếp hạng'],
   ['🏅', 'achievements', 'Thành tích'],
   ['📜', 'history', 'Lịch sử tập'],
+  ['⚔️', 'matches', 'Lịch sử thách đấu'],
   ['📡', 'channel', 'Đổi channel'],
   ['😊', 'emote', 'Biểu cảm (Q)'],
   ['⚙️', 'settings', 'Cài đặt'],
+  ['👤', 'account', 'Tài khoản'],
   ['🚪', 'logout', 'Đăng xuất'],
 ];
 
 export class HUD {
+  // Thêm nút vào thanh menu (vd: nút quản trị chỉ admin mới thấy)
+  addMenuButton(icon, name, title, onClick) {
+    this.menuRow.append(h('button', { class: 'icon-btn', title, 'data-menu': name, onclick: onClick }, icon));
+  }
+
+  setNotifBadge(n) {
+    const b = this.menuRow.querySelector('[data-menu="notifications"]');
+    b?.classList.toggle('has-badge', n > 0);
+    if (b) b.dataset.badge = n > 9 ? '9+' : String(n);
+  }
+
   constructor({ onInteract, onStop, onMenu }) {
     this.onInteract = onInteract;
     this.onStop = onStop;
@@ -114,6 +130,7 @@ export class HUD {
       ),
       h('div', { class: 'wk-rep' }, h('div', { class: 'bar' }, this.wkRepFill)),
       this.syncEl,
+      this.mgEl = h('div', { class: 'mg' }),
       this.wkDuo,
       h('div', { class: 'wk-actions' }, h('button', { class: 'btn danger', onclick: () => this.onStop() }, isMobile() ? '⏹ Dừng' : '⏹ Dừng (E)'))
     );
@@ -126,7 +143,12 @@ export class HUD {
     // ---- Màn chuyển tầng ----
     this.floorOverlay = h('div', { class: 'floor-overlay hidden' }, h('div', { class: 'fo-icon' }, '🛗'), h('div', { class: 'fo-text' }), h('div', { class: 'loading-bar' }, h('div')));
 
-    uiRoot().append(this.tl, this.tr, this.eventEl, this.prompt, this.workout, this.thermo, this.floorOverlay);
+    // ---- Thanh hơi thở khi lặn + lớp phủ dưới nước ----
+    this.breathFill = h('div');
+    this.breathEl = h('div', { class: 'breath panel hidden' }, h('span', {}, '🫧 Hơi thở'), h('div', { class: 'bar' }, this.breathFill));
+    this.waterOverlay = h('div', { class: 'underwater-overlay hidden' });
+
+    uiRoot().append(this.waterOverlay, this.tl, this.tr, this.eventEl, this.prompt, this.workout, this.thermo, this.breathEl, this.floorOverlay);
   }
 
   setCharacter(c) {
@@ -215,7 +237,7 @@ export class HUD {
     this.promptTitle.textContent = title;
     this.promptSub.textContent = sub || '';
     this.prompt.classList.toggle('busy', busy);
-    this.promptKey.textContent = keyLabel || (busy ? '✕' : isMobile() ? '👆' : 'E');
+    this.promptKey.textContent = keyLabel || (busy ? '✕' : isMobile() ? '👆' : keyName(settings.keys.interact));
     this.prompt.classList.remove('hidden');
   }
 
@@ -223,10 +245,10 @@ export class HUD {
     this.prompt.classList.add('hidden');
   }
 
-  showWorkout(info, tag, { klass = false, laps = false } = {}) {
+  showWorkout(info, tag, { klass = false, laps = false, lapsLabel } = {}) {
     this.wkTitle.textContent = info.label;
     this.wkTag.textContent = tag || info.en || '';
-    this.wkRepsLabel.textContent = laps ? 'Số vòng' : 'Số rep';
+    this.wkRepsLabel.textContent = lapsLabel || (laps ? 'Số vòng' : 'Số rep');
     this.syncEl.classList.toggle('hidden', !klass);
     this.wkDuo.classList.add('hidden');
     this.workout.classList.remove('hidden');
@@ -271,6 +293,18 @@ export class HUD {
 
   hideFloorOverlay() {
     this.floorOverlay.classList.add('hidden');
+  }
+
+  setBreath(v) {
+    this.breathEl.classList.toggle('hidden', v === null);
+    if (v !== null) {
+      this.breathFill.style.width = `${Math.round(v * 100)}%`;
+      this.breathFill.style.background = v > 0.3 ? 'linear-gradient(90deg,#38bdf8,#a5f3fc)' : '#f87171';
+    }
+  }
+
+  setUnderwater(on) {
+    this.waterOverlay.classList.toggle('hidden', !on);
   }
 
   toggleMinimap() {

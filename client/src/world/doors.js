@@ -74,7 +74,7 @@ export class Door {
         break;
       }
     }
-    const target = near ? 1 : 0;
+    const target = this.locked ? 0 : this.forceOpen || near ? 1 : 0;
     this.open += (target - this.open) * (1 - Math.exp(-dt * 6));
     for (const p of this.panels) {
       if (this.type === 'sliding') {

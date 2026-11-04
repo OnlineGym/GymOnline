@@ -13,6 +13,8 @@ const HINT = {
   squat: 'Bấm SPACE mỗi lần squat (≥ 0.45s / rep)',
   plank: 'GIỮ phím SPACE – buông ra là thua!',
   race: 'Bấm SPACE liên tục để tăng tốc!',
+  raceRow: 'Bấm SPACE liên tục để chèo nhanh hơn!',
+  raceBike: 'Bấm SPACE liên tục để đạp nhanh hơn!',
 };
 
 export class ChallengeUI {
@@ -65,7 +67,7 @@ export class ChallengeUI {
     };
     if (p.kind === 'spar') btns.append(btn('👊 Đấm', 'punch'), btn('🛡️ Đỡ', 'block', 'ghost'), btn('💨 Né', 'dodge', 'ghost'));
     else if (p.kind === 'plank') btns.append(btn('🧱 GIỮ', 'holdToggle'));
-    else if (p.kind === 'armWrestle' || p.kind === 'race') btns.append(btn(p.kind === 'race' ? '🏃 TĂNG TỐC' : '💪 BẤM', 'tap'));
+    else if (p.kind === 'armWrestle' || p.distance) btns.append(btn(p.distance ? `${p.icon} TĂNG TỐC` : '💪 BẤM', 'tap'));
     else btns.append(btn('⬇️ REP', 'rep'));
     if (!isMobile()) btns.classList.add('desktop-hint');
     this.el.append(
@@ -150,11 +152,14 @@ export class ChallengeUI {
         }
         break;
       }
-      case 'race': {
+      case 'race':
+      case 'raceRow':
+      case 'raceBike': {
+        const icon = { race: '🏃', raceRow: '🚣', raceBike: '🚴' }[s.kind];
         for (const p of s.participants) {
           const d = s.dist[p.nid] || 0;
           b.append(
-            h('div', { class: 'lane' }, h('span', { class: 'lane-name' }, p.nid === me ? 'Bạn' : p.name), h('div', { class: 'lane-track' }, h('div', { class: 'lane-runner', style: { left: `${(d / s.distance) * 100}%` } }, '🏃')), h('span', {}, `${d}m`))
+            h('div', { class: 'lane' }, h('span', { class: 'lane-name' }, p.nid === me ? 'Bạn' : p.name), h('div', { class: 'lane-track' }, h('div', { class: 'lane-runner', style: { left: `${(d / s.distance) * 100}%` } }, icon)), h('span', {}, `${d}m`))
           );
         }
         break;

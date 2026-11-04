@@ -212,7 +212,7 @@ export function createPlayer({ socket, userId, appearance, bot = false, f, x, z,
   };
   p.packed = () => {
     if (p._pv !== p.ver) {
-      p._pk = [p.nid, q(p.x), q(p.y), q(p.z), qa(p.ry), p.anim];
+      p._pk = [p.nid, q(p.x), q(p.y), q(p.z), qa(p.ry), p.anim, p.pp || 0];
       p._pv = p.ver;
     }
     return p._pk;

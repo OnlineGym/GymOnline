@@ -25,6 +25,19 @@ const env = {
   adminSecret: process.env.ADMIN_SECRET || '',
   loadtestSecret: process.env.LOADTEST_SECRET || '',
   hostname: os.hostname(),
+  // Địa chỉ giao diện web, dùng để tạo link trong email
+  clientUrl: (process.env.CLIENT_URL || (process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',')[0]).trim().replace(/\/$/, ''),
+  smtp: {
+    url: process.env.SMTP_URL || '',
+    host: process.env.SMTP_HOST || '',
+    port: Number(process.env.SMTP_PORT) || 587,
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.MAIL_FROM || 'Gym Online <no-reply@gymonline.local>',
+  },
+  // Nhạc phòng Aerobic: API key YouTube Data v3 (tự tìm nhạc) và/hoặc playlist mặc định (ID hoặc link)
+  youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
+  aerobicPlaylist: process.env.AEROBIC_YT_PLAYLIST || '',
 };
 
 if (env.isProd && env.jwtSecret === 'dev-secret-change-me') {

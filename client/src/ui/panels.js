@@ -1,6 +1,7 @@
-import { h, openModal, fmtDate, fmtTime } from './dom.js';
+import { h, openModal, fmtDate, fmtTime, toast } from './dom.js';
 import { api } from '../network/api.js';
-import { settings, updateSettings } from '../core/settings.js';
+import { settings, updateSettings, QUALITY_ORDER, QUALITY_LABEL } from '../core/settings.js';
+import { DEFAULT_KEYS, KEY_LABELS, RESERVED_KEYS, keyLabel } from '../core/settings.js';
 import { EQUIPMENT_INFO, STAT_LABELS, STAT_ICONS } from '../equipment/config.js';
 import { isMobile } from '../core/device.js';
 
@@ -129,19 +130,19 @@ export function openSettings() {
     input.onchange = () => updateSettings({ [key]: input.checked });
     return h('label', { class: 'switch' }, input, h('span'));
   };
-  const range = (key, min = 0, max = 1, step = 0.05) => {
+  const range = (key, min = 0, max = 1, step = 0.05, fmt) => {
     const input = h('input', { type: 'range', min, max, step, value: settings[key] });
-    input.oninput = () => updateSettings({ [key]: Number(input.value) });
-    return input;
+    const val = fmt ? h('span', { class: 'muted', style: { minWidth: '48px', textAlign: 'right', fontSize: '12px' } }, fmt(settings[key])) : null;
+    input.oninput = () => {
+      updateSettings({ [key]: Number(input.value) });
+      if (val) val.textContent = fmt(Number(input.value));
+    };
+    return val ? h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, input, val) : input;
   };
   const qualitySel = h(
     'div',
     { class: 'opt-row' },
-    [
-      ['low', 'Thấp'],
-      ['medium', 'Trung bình'],
-      ['high', 'Cao'],
-    ].map(([v, label]) => {
+    QUALITY_ORDER.map((v) => [v, QUALITY_LABEL[v]]).map(([v, label]) => {
       const b = h('button', { type: 'button', class: `chip${settings.quality === v ? ' active' : ''}` }, label);
       b.onclick = () => {
         updateSettings({ quality: v });
@@ -151,25 +152,64 @@ export function openSettings() {
       return b;
     })
   );
+  // Đổi phím: bấm nút rồi nhấn phím mới; trùng phím khác thì 2 phím đổi chỗ cho nhau
+  const keysBox = h('div', { class: 'keybinds' });
+  const renderKeys = () => {
+    keysBox.innerHTML = '';
+    for (const action of Object.keys(DEFAULT_KEYS)) {
+      const btn = h('button', { type: 'button', class: 'chip' }, keyLabel(settings.keys[action]));
+      btn.onclick = () => {
+        btn.textContent = 'Nhấn phím...';
+        const onKey = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          window.removeEventListener('keydown', onKey, true);
+          if (e.code === 'Escape') return renderKeys();
+          if (RESERVED_KEYS.test(e.code)) {
+            toast(`Phím ${keyLabel(e.code)} đang dùng cố định, hãy chọn phím khác`, 'error');
+            return renderKeys();
+          }
+          const keys = { ...settings.keys };
+          const clash = Object.keys(keys).find((a) => keys[a] === e.code && a !== action);
+          if (clash) keys[clash] = keys[action];
+          keys[action] = e.code;
+          updateSettings({ keys });
+          return renderKeys();
+        };
+        window.addEventListener('keydown', onKey, true);
+      };
+      keysBox.append(h('div', { class: 'keybind-row' }, h('span', {}, KEY_LABELS[action]), btn));
+    }
+    keysBox.append(h('button', { type: 'button', class: 'btn ghost', style: { marginTop: '8px' }, onclick: () => (updateSettings({ keys: { ...DEFAULT_KEYS } }), renderKeys()) }, 'Khôi phục mặc định'));
+  };
+  renderKeys();
   const body = h(
     'div',
     {},
-    h('div', { class: 'setting' }, h('div', {}, h('b', {}, 'Chất lượng đồ họa'), h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Thấp: tắt bóng đổ, gương; phù hợp điện thoại')), qualitySel),
+    h('div', { class: 'setting' }, h('div', {}, h('b', {}, 'Chất lượng đồ họa'), h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Thấp: tắt hậu kỳ/bóng đổ (điện thoại) • Cao: bloom, AO, phản chiếu • Siêu: vật liệu vật lý, bóng mềm')), qualitySel),
     h('div', { class: 'setting' }, h('div', {}, h('span', {}, '🤖 Tự giảm đồ họa khi FPS thấp'), h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Dưới 30 FPS trong vài giây sẽ tự hạ 1 mức')), sw('autoQuality')),
+    h('div', { class: 'setting' }, h('div', {}, h('span', {}, '🔭 Góc nhìn rộng (FOV)'), h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Càng lớn càng thấy rộng hai bên')), range('fov', 50, 95, 1, (v) => v + '°')),
+    h('div', { class: 'setting' }, h('div', {}, h('span', {}, '🌫️ Tầm nhìn xa'), h('div', { class: 'muted', style: { fontSize: '12px' } }, 'Khoảng cách sương mù & vẽ vật thể (xa hơn = nặng hơn)')), range('viewDistance', 0.6, 1.8, 0.1, (v) => Math.round(v * 100) + '%')),
+    h('div', { class: 'setting' }, h('span', {}, '🎥 Camera lùi xa tối đa'), range('maxZoom', 4, 16, 0.5, (v) => v + 'm')),
+    h('div', { class: 'setting' }, h('span', {}, '🛗 Góc nhìn thứ nhất trong thang máy'), sw('firstPersonElevator')),
     h('div', { class: 'setting' }, h('span', {}, '👥 Số nhân vật hiển thị chi tiết'), range('maxDetailed', 10, 80, 5)),
     h('div', { class: 'setting' }, h('span', {}, '🔊 Âm thanh'), sw('sound')),
-    h('div', { class: 'setting' }, h('span', {}, '🎵 Nhạc lớp aerobic/spin'), range('music')),
+    h('div', { class: 'setting' }, h('span', {}, '🎵 Nhạc phòng tập'), range('music')),
     h('div', { class: 'setting' }, h('span', {}, '🔔 Hiệu ứng âm thanh'), range('sfx')),
     h('div', { class: 'setting' }, h('span', {}, '🖱️ Độ nhạy camera'), range('cameraSensitivity', 0.3, 2, 0.1)),
     h('div', { class: 'setting' }, h('span', {}, '📈 Hiện FPS'), sw('showFps')),
+    isMobile() ? null : h('details', { class: 'keybind-wrap' }, h('summary', {}, '⌨️ Đổi phím điều khiển'), keysBox),
     isMobile()
-      ? h('div', { class: 'keys-help' }, 'Joystick trái: di chuyển • Vuốt: xoay camera • Chụm 2 ngón: zoom • ⤴️: nhảy • 🏃: chạy • Chạm vào người chơi để tương tác')
+      ? h('div', { class: 'keys-help' }, 'Joystick trái: di chuyển • Vuốt: xoay camera • Chụm 2 ngón: zoom • ⤴️: nhảy / nổi • ⤵️: lặn • 🏃: chạy • 🧘: ngồi/nằm • Đi vào thang bộ/thang cuốn để lên xuống tầng • Bước vào thang máy để chọn tầng • Khi tập: bấm các nút trên màn hình theo minigame')
       : h('div', {
           class: 'keys-help',
           html:
-            '<kbd>WASD</kbd> di chuyển • <kbd>Shift</kbd> chạy • <kbd>Space</kbd> nhảy • Kéo chuột: xoay camera • Lăn: zoom<br>' +
+            '<b>Phím mặc định</b><br><kbd>WASD</kbd> di chuyển • <kbd>Shift</kbd> chạy • <kbd>Space</kbd> nhảy • Kéo chuột: xoay camera • Lăn: zoom<br>' +
+            'Thang bộ/thang cuốn: cứ đi vào là lên/xuống tầng • Thang máy: bước vào rồi bấm <kbd>0</kbd>-<kbd>4</kbd> chọn tầng<br>' +
+            'Hồ bơi: <kbd>Space</kbd> nổi • <kbd>C</kbd> lặn • sát thành hồ + <kbd>Space</kbd>/<kbd>E</kbd> lên bờ<br>' +
+            'Tập luyện: mỗi máy là một trò riêng (click, kéo chuột, nhảy, bấm theo nhịp...), hướng dẫn hiện ngay trên bảng tập. Chơi chuẩn được thêm EXP<br>' +
             '<kbd>E</kbd> tập/tương tác • <kbd>F</kbd> tương tác người gần nhất • Bấm vào nhân vật để mở menu<br>' +
-            '<kbd>Q</kbd> biểu cảm • <kbd>1</kbd>-<kbd>8</kbd> emote nhanh • <kbd>M</kbd> bản đồ • <kbd>N</kbd> tìm máy trống • <kbd>O</kbd> bạn bè • <kbd>I</kbd> túi đồ • <kbd>Enter</kbd> chat<br>' +
+            '<kbd>C</kbd> ngồi • <kbd>Z</kbd> nằm (bấm lại hoặc di chuyển để đứng dậy) • <kbd>Q</kbd> biểu cảm • <kbd>1</kbd>-<kbd>8</kbd> emote nhanh • <kbd>M</kbd> bản đồ • <kbd>N</kbd> tìm máy trống • <kbd>O</kbd> bạn bè • <kbd>I</kbd> túi đồ • <kbd>Enter</kbd> chat<br>' +
             'Thách đấu: <kbd>Space</kbd> bấm/giữ • Sparring <kbd>J</kbd> đấm <kbd>K</kbd> đỡ <kbd>L</kbd> né',
         })
   );

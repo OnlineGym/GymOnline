@@ -48,7 +48,7 @@ export class Net {
       });
       s.on('connect_error', (err) => {
         if (!first) return;
-        const map = { UNAUTHORIZED: 'Phiên đăng nhập hết hạn', NO_CHARACTER: 'Chưa tạo nhân vật' };
+        const map = { UNAUTHORIZED: 'Phiên đăng nhập hết hạn', NO_CHARACTER: 'Chưa tạo nhân vật', BANNED: 'Tài khoản đang bị khóa' };
         first = false;
         reject(Object.assign(new Error(map[err.message] || 'Không kết nối được máy chủ realtime'), { code: err.message }));
         s.disconnect();
@@ -64,6 +64,11 @@ export class Net {
       this.serverOffset = offset;
       this._offsetInit = true;
     } else this.serverOffset = this.serverOffset * 0.95 + offset * 0.05;
+  }
+
+  // Tab đang đóng: báo server cho nhân vật offline ngay
+  bye() {
+    this.socket?.emit('bye');
   }
 
   disconnect() {

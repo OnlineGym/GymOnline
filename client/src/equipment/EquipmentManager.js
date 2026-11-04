@@ -1,4 +1,6 @@
+import * as THREE from 'three';
 import { buildEquipmentMesh } from './builders.js';
+import { setProxyVisible } from '../world/helpers.js';
 import { EQUIPMENT_INFO, slotInfo, effort } from './config.js';
 
 /**
@@ -27,6 +29,9 @@ export class EquipmentManager {
     const n = (this.counters[key] = (this.counters[key] || 0) + 1);
     const id = `f${floor}:${type}_${n}`;
     const built = buildEquipmentMesh(info.model, info.group || 'stamina', opts);
+    built.update(0, false, 0, 0, 0); // đặt các bộ phận về tư thế nghỉ
+    const idleOwner = {};
+    const idleParts = cloneIdleParts(built.group, idleOwner);
     built.group.position.set(x, 0, z);
     built.group.rotation.y = ry;
     ctx.parent.add(built.group);
@@ -50,9 +55,12 @@ export class EquipmentManager {
     built.group.traverse((o) => {
       if (o !== built.group && o.userData.dynamic && !dyn.some((d) => isAncestor(d, o))) dyn.push(o);
     });
+    for (const d of dyn) d.visible = false;
+    idleParts.forEach((m) => built.group.add(m));
     const main = {
       dyn,
-      dynVisible: true,
+      idle: idleOwner,
+      wasActive: false,
       id,
       type,
       slot: 0,
@@ -152,18 +160,19 @@ export class EquipmentManager {
   update(floor, dt, now, player) {
     for (const eq of this.byFloor.get(floor) || []) {
       if (eq.base) continue;
-      if (!eq.group.parent?.visible) continue; // khu đang bị ẩn (culling) -> bỏ qua
-      if (player) {
-        const near = !!eq.user || Math.hypot(eq.seat.x - player.x, eq.seat.z - player.z) < 16;
-        if (near !== eq.dynVisible) {
-          eq.dynVisible = near;
-          for (const d of eq.dyn) d.visible = near;
-        }
-        if (!near) continue;
-      }
       const active = !!eq.user;
-      const phase = this.phaseOf(eq, now);
-      eq.update(active ? effort(phase) : 0, active, dt, now, phase);
+      // Chỉ máy đang có người tập mới tách bộ phận chuyển động ra (tốn draw call riêng);
+      // máy nghỉ nằm gọn trong khối tĩnh đã gộp
+      if (active !== eq.wasActive) {
+        eq.wasActive = active;
+        for (const d of eq.dyn) d.visible = active;
+        setProxyVisible(eq.idle, !active);
+      }
+      if (!active || !eq.group.parent?.visible) continue;
+      // Máy của người chơi local chạy theo thao tác minigame (manualP / manualPhase)
+      const phase = eq.manualPhase ?? this.phaseOf(eq, now);
+      const p = eq.manualP ?? effort(phase);
+      eq.update(p, true, dt, now, phase);
     }
   }
 
@@ -180,6 +189,28 @@ export class EquipmentManager {
     }
     return out;
   }
+}
+
+// Bản sao tĩnh của các bộ phận chuyển động ở tư thế nghỉ (sẽ được gộp cùng khung máy)
+function cloneIdleParts(group, owner) {
+  group.updateMatrixWorld(true);
+  const out = [];
+  const visit = (o, inDyn) => {
+    if (!o.visible) return;
+    const dyn = inDyn || o.userData.dynamic;
+    if (o.isMesh && dyn) {
+      const m = new THREE.Mesh(o.geometry, o.material);
+      m.matrixAutoUpdate = false;
+      m.matrix.copy(o.matrixWorld);
+      m.castShadow = o.castShadow;
+      m.receiveShadow = o.receiveShadow;
+      m.userData.idleOf = owner;
+      out.push(m);
+    }
+    o.children.forEach((c) => visit(c, dyn));
+  };
+  visit(group, false);
+  return out;
 }
 
 function isAncestor(a, o) {

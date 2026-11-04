@@ -3,6 +3,7 @@ import Character from '../models/Character.js';
 import { Match } from '../models/social.js';
 import { applyExp } from '../utils/progression.js';
 import { award } from '../services/achievements.js';
+import { bump } from '../services/quests.js';
 import { broadcastAppearance } from './notify.js';
 
 /**
@@ -13,7 +14,7 @@ import { broadcastAppearance } from './notify.js';
  *  - spar       : sparring boxing trong võ đài – đấm/đỡ/né, thanh máu giả lập
  *  - pushup/squat: đếm rep trong thời gian giới hạn
  *  - plank      : giữ lâu nhất
- *  - race       : đua 2-8 người, tốc độ theo nhịp bấm
+ *  - race, raceRow, raceBike : đua 2-8 người, tốc độ theo nhịp bấm
  * Xử lý: hết hạn lời mời, hủy, rớt mạng giữa chừng (xử thua/hủy hợp lệ).
  */
 const INVITE_TTL = 20000;
@@ -230,6 +231,8 @@ export class InteractionManager {
         }
         break;
       case 'race':
+      case 'raceRow':
+      case 'raceBike':
         if (a !== 'tap' || now - d.lastInput < 70) return;
         d.lastInput = now;
         d.taps.push(now);
@@ -310,7 +313,7 @@ export class InteractionManager {
         if (broadcast) this.emitTo(ix, 'ix:update', { id: ix.id, pos, order: [a, b] });
         if (Math.abs(pos) >= 40) return this.finish(ix);
       }
-      if (ix.kind === 'race') {
+      if (ix.def.distance) {
         const dt = 0.1;
         if (broadcast) {
           for (const nid of ix.members) {
@@ -380,7 +383,7 @@ export class InteractionManager {
       if (!d) continue;
       if (ix.kind === 'plank' && d.holding && !d.failedAt) d.score = Math.round((now - d.holdStart) / 100) / 10;
       if (ix.kind === 'spar') d.score = d.hp;
-      if (ix.kind === 'race' && d.doneAt) d.score = ix.def.distance + (ix.endAt - d.doneAt) / 1000;
+      if (ix.def.distance && d.doneAt) d.score = ix.def.distance + (ix.endAt - d.doneAt) / 1000;
       if (ix.forfeits?.has(nid)) d.score = -1;
     }
     const ranked = members
@@ -409,7 +412,9 @@ export class InteractionManager {
         await c.save();
         if (up) broadcastAppearance(r.userId, c.appearance());
         this.ch.byUser.get(r.userId)?.socket.emit('character', c.toPublic());
+        bump(r.userId, 'challenge', 1);
         if (r.win) {
+          bump(r.userId, 'win', 1);
           await award(r.userId, 'challenge_win');
           if (ix.kind === 'spar') await award(r.userId, 'spar_win');
         }

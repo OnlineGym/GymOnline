@@ -71,6 +71,10 @@ const transactionSchema = new mongoose.Schema(
     item: { type: String, default: null },
     qty: { type: Number, default: 0, min: 0 },
     message: { type: String, maxlength: 100, default: '' },
+    // Trao đổi: người nhận phải đưa lại những thứ này thì mới nhận được quà
+    wantCoins: { type: Number, default: 0 },
+    wantItem: { type: String, default: null },
+    wantQty: { type: Number, default: 0 },
     status: { type: String, enum: ['pending', 'accepted', 'declined', 'expired'], default: 'pending' },
   },
   { timestamps: true }
@@ -87,12 +91,28 @@ const reportSchema = new mongoose.Schema(
     reason: { type: String, enum: ['spam', 'abuse', 'cheat', 'name', 'other'], required: true },
     details: { type: String, maxlength: 300, default: '' },
     recentChat: [{ type: String }],
-    status: { type: String, enum: ['open', 'reviewed'], default: 'open' },
+    status: { type: String, enum: ['open', 'reviewed', 'dismissed'], default: 'open' },
+    note: { type: String, maxlength: 300, default: '' },
+    handledBy: { type: ObjectId, ref: 'User' },
   },
   { timestamps: true }
 );
 reportSchema.index({ target: 1, createdAt: -1 });
+reportSchema.index({ status: 1, createdAt: 1 });
 export const Report = mongoose.model('Report', reportSchema);
+
+// ===== Nhật ký thao tác quản trị =====
+const adminActionSchema = new mongoose.Schema(
+  {
+    admin: { type: ObjectId, ref: 'User', required: true },
+    action: { type: String, required: true },
+    target: { type: ObjectId, ref: 'User' },
+    detail: { type: String, default: '' },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } }
+);
+adminActionSchema.index({ createdAt: -1 });
+export const AdminAction = mongoose.model('AdminAction', adminActionSchema);
 
 // ===== Thành tích =====
 const achievementSchema = new mongoose.Schema(

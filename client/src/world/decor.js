@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { box, cyl, sphere, torus } from './helpers.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { box, cyl, sphere, torus, cushion, lathe } from './helpers.js';
 import { mat, C, textTexture } from './materials.js';
 import { buildLockerColumn } from '../equipment/builders.js';
 
@@ -14,23 +15,45 @@ let T = null;
 function templates() {
   if (T) return T;
   const plant = new THREE.Group();
-  plant.add(cyl(0.22, 0.17, 0.4, mat('#e2e8f0', { rough: 0.4 }), 0, 0.2, 0, 12));
-  plant.add(sphere(0.32, mat('#22c55e', { rough: 0.9, flat: true }), 0, 0.65, 0, 7));
-  plant.add(sphere(0.24, mat('#4ade80', { rough: 0.9, flat: true }), 0.12, 0.9, -0.05, 7));
+  // Chậu gốm + đất + chùm lá hình bầu dục xếp xoắn ốc
+  plant.add(lathe([[0, 0], [0.17, 0], [0.235, 0.36], [0.25, 0.4], [0.22, 0.4], [0.2, 0.36], [0, 0.36]], mat('#d8d4cc', { rough: 0.5 }), 0, 0, 0, 24));
+  plant.add(cyl(0.012, 0.018, 0.8, mat('#4b3a24', { rough: 0.9 }), 0, 0.76, 0, 8));
+  const leafMat = [mat('#2f7d3b', { rough: 0.5 }), mat('#3f9a4b', { rough: 0.5 }), mat('#245f30', { rough: 0.55 })];
+  const leafGeo = new THREE.SphereGeometry(0.14, 8, 6);
+  for (let i = 0; i < 12; i++) {
+    const a = i * 2.4;
+    const h = 0.5 + (i / 12) * 0.72;
+    const r = 0.26 - (i / 12) * 0.13;
+    const lf = new THREE.Mesh(leafGeo, leafMat[i % 3]);
+    lf.castShadow = true;
+    lf.position.set(Math.cos(a) * r, h, Math.sin(a) * r);
+    lf.scale.set(0.62, 0.1, 1.15);
+    lf.rotation.set(0.25, -a + Math.PI / 2, 0);
+    plant.add(lf);
+  }
   const lamp = new THREE.Group();
-  lamp.add(box(1.6, 0.06, 0.5, mat('#ffffff', { emissive: '#fffbe8', emissiveIntensity: 1.6 }), 0, 0, 0, { cast: false, receive: false }));
+  // Đèn LED dài âm trần có viền nhôm
+  lamp.add(box(3.1, 0.03, 0.22, mat('#3a3d42', { rough: 0.4, metal: 0.8 }), 0, 0.015, 0, { cast: false, receive: false }));
+  lamp.add(box(2.98, 0.02, 0.13, mat('#ffffff', { emissive: '#fff4e2', emissiveIntensity: 3.4 }), 0, -0.012, 0, { cast: false, receive: false }));
   const locker = buildLockerColumn(new THREE.Group(), '#14b8a6');
   const locker2 = buildLockerColumn(new THREE.Group(), '#0d9488');
   const lockerPink = buildLockerColumn(new THREE.Group(), '#db2777');
   const dumbbell = (color) => {
     const g = new THREE.Group();
-    const h = cyl(0.015, 0.015, 0.22, mat(C.chrome, { metal: 0.9, rough: 0.2 }), 0, 0, 0, 6);
+    // Tạ đơn lục giác bọc cao su, tay cầm khía, nắp đầu tạ màu theo cỡ
+    const h = cyl(0.014, 0.014, 0.2, mat('#c5c9cf', { metal: 1, rough: 0.35 }), 0, 0, 0, 10);
     h.rotation.x = HALF_PI;
     g.add(h);
+    const hex = new THREE.CylinderGeometry(0.058, 0.058, 0.07, 6);
     for (const s of [-1, 1]) {
-      const w = cyl(0.05, 0.05, 0.06, mat(color, { rough: 0.5 }), 0, 0, s * 0.11, 8);
+      const w = new THREE.Mesh(hex, mat('#17181b', { rough: 0.72 }));
+      w.position.z = s * 0.125;
       w.rotation.x = HALF_PI;
+      w.castShadow = true;
       g.add(w);
+      const cap = cyl(0.028, 0.028, 0.006, mat(color, { rough: 0.35, metal: 0.4 }), 0, 0, s * 0.162, 16, { cast: false });
+      cap.rotation.x = HALF_PI;
+      g.add(cap);
     }
     return g;
   };
@@ -45,14 +68,32 @@ function templates() {
   lounger.add(back);
   lounger.add(box(0.72, 0.04, 1.72, mat('#38bdf8'), 0, 0.25, 0));
   const tree = new THREE.Group();
-  tree.add(cyl(0.15, 0.22, 1.4, mat('#8b5a2b', { rough: 1 }), 0, 0.7, 0, 7));
-  const c1 = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2, 7), mat('#16a34a', { rough: 0.9, flat: true }));
-  c1.position.y = 2.2;
-  c1.castShadow = true;
-  const c2 = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.5, 7), mat('#4ade80', { rough: 0.9, flat: true }));
-  c2.position.y = 3.1;
-  c2.castShadow = true;
-  tree.add(c1, c2);
+  // Cây tán tròn: thân thuôn + nhiều khối lá lồi lõm, mượt
+  tree.add(lathe([[0, 0], [0.27, 0], [0.16, 0.3], [0.12, 1.1], [0.09, 1.9], [0, 1.9]], mat('#6b4a2e', { rough: 0.95 }), 0, 0, 0, 12));
+  // Gộp đỉnh trùng để pháp tuyến mượt (khối lá tròn, không gãy cạnh)
+  const blobRaw = new THREE.IcosahedronGeometry(1, 2);
+  blobRaw.deleteAttribute('normal');
+  blobRaw.deleteAttribute('uv');
+  const blob = mergeVertices(blobRaw, 1e-3);
+  {
+    const P = blob.attributes.position;
+    for (let i = 0; i < P.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(P, i);
+      const n = 1 + Math.sin(v.x * 7.1) * 0.05 + Math.sin(v.y * 8.3 + 1) * 0.05 + Math.sin(v.z * 9.2 + 2) * 0.05;
+      v.multiplyScalar(n);
+      P.setXYZ(i, v.x, v.y, v.z);
+    }
+    blob.computeVertexNormals();
+  }
+  const foliage = [mat('#2f7d32', { rough: 0.8 }), mat('#3c9440', { rough: 0.8 }), mat('#276a2b', { rough: 0.85 })];
+  [[0, 2.5, 0, 1.15], [0.75, 2.2, 0.2, 0.75], [-0.7, 2.25, 0.25, 0.8], [0.15, 2.3, -0.75, 0.75], [-0.1, 3.15, 0.1, 0.8], [0.3, 2.85, 0.5, 0.62]].forEach(([x, y, z, s], i) => {
+    const m = new THREE.Mesh(blob, foliage[i % 3]);
+    m.position.set(x, y, z);
+    m.scale.setScalar(s);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    tree.add(m);
+  });
   const plate = new THREE.Group();
   const pl = cyl(0.22, 0.22, 0.05, mat('#111827', { rough: 0.5, metal: 0.4 }), 0, 0, 0, 18);
   pl.rotation.x = HALF_PI;
@@ -112,9 +153,19 @@ export function dumbbellRack(ctx, x, z, len = 4.5, ry = 0) {
   const g = new THREE.Group();
   g.position.set(x, 0, z);
   g.rotation.y = ry;
-  g.add(box(len, 0.08, 0.7, mat(C.metal, { metal: 0.6, rough: 0.35 }), 0, 0.5, 0));
-  g.add(box(len, 0.08, 0.7, mat(C.metal, { metal: 0.6, rough: 0.35 }), 0, 0.9, 0));
-  for (const s of [-1, 1]) g.add(box(0.08, 1, 0.7, mat(C.metal, { metal: 0.6 }), (s * len) / 2, 0.5, 0));
+  // Giá thép 2 tầng có ray đỡ: lộ tạ, không phải kệ đặc
+  const steel = mat('#26292e', { metal: 0.6, rough: 0.42 });
+  for (const lz of [-0.15, 0.15]) {
+    const ly = lz < 0 ? 0.52 : 0.92;
+    for (const dz of [-0.13, 0.13]) g.add(box(len, 0.04, 0.03, steel, 0, ly, lz + dz));
+  }
+  for (const lx of [-len / 2, 0, len / 2]) {
+    g.add(box(0.06, 1.0, 0.06, steel, lx, 0.5, 0.2));
+    g.add(box(0.06, 0.6, 0.06, steel, lx, 0.3, -0.2));
+    g.add(box(0.06, 0.04, 0.56, steel, lx, 0.52, 0));
+    g.add(box(0.06, 0.04, 0.3, steel, lx, 0.92, 0.15));
+    g.add(box(0.1, 0.03, 0.72, steel, lx, 0.015, 0));
+  }
   S.add(g);
   const t = templates();
   const n = Math.floor(len / 0.5);
@@ -163,10 +214,15 @@ export function sofa(ctx, x, z, ry = 0, color = '#7c3aed') {
   const g = new THREE.Group();
   g.position.set(x, 0, z);
   g.rotation.y = ry;
-  g.add(box(2.4, 0.4, 0.9, mat(color, { rough: 0.8 }), 0, 0.2, 0));
-  g.add(box(2.4, 0.6, 0.25, mat(color, { rough: 0.85 }), 0, 0.6, -0.35));
-  g.add(box(0.25, 0.55, 0.9, mat(color, { rough: 0.85 }), -1.1, 0.4, 0));
-  g.add(box(0.25, 0.55, 0.9, mat(color, { rough: 0.85 }), 1.1, 0.4, 0));
+  // Sofa bọc vải: đệm rời, tựa lưng, tay ghế, chân kim loại
+  const fabric = mat(color, { rough: 0.9 });
+  g.add(cushion(2.4, 0.22, 0.88, fabric, 0, 0.22, 0));
+  for (const s of [-1, 1]) {
+    g.add(cushion(0.96, 0.16, 0.66, fabric, s * 0.49, 0.42, 0.08));
+    g.add(cushion(0.96, 0.5, 0.2, fabric, s * 0.49, 0.72, -0.28));
+    g.add(cushion(0.24, 0.5, 0.88, fabric, s * 1.08, 0.46, 0));
+    for (const q of [-1, 1]) g.add(cyl(0.02, 0.012, 0.12, mat('#b8bcc2', { rough: 0.3, metal: 1 }), s * 1.05, 0.06, q * 0.34, 10));
+  }
   ctx.S.add(g);
   const rot = Math.abs(Math.sin(ry)) > 0.5;
   ctx.col(x, z, rot ? 0.9 : 2.4, rot ? 2.4 : 0.9);

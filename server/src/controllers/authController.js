@@ -1,7 +1,8 @@
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import Character from '../models/Character.js';
-import { signToken } from '../middleware/auth.js';
+import { signToken, banMessage } from '../middleware/auth.js';
+import { issueVerify } from './accountController.js';
 import { HttpError, asyncHandler } from '../middleware/errorHandler.js';
 
 export const register = asyncHandler(async (req, res) => {
@@ -15,8 +16,10 @@ export const register = asyncHandler(async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = await User.create({ username, email, passwordHash });
-  res.status(201).json({ token: signToken(user._id), user: user.toPublic(), hasCharacter: false });
+  const user = await User.create({ username, email, passwordHash, acceptedTermsAt: new Date() });
+  // Gửi email xác minh ở nền: không bắt người chơi chờ, lỗi mail không làm hỏng đăng ký
+  issueVerify(user).catch((e) => console.error('[mail] verify', e.message));
+  res.status(201).json({ token: signToken(user._id, 0), user: user.toPublic(), hasCharacter: false });
 });
 
 export const login = asyncHandler(async (req, res) => {
@@ -28,8 +31,9 @@ export const login = asyncHandler(async (req, res) => {
   if (!user || !(await bcrypt.compare(req.body.password, user.passwordHash))) {
     throw new HttpError(401, 'Sai tên đăng nhập hoặc mật khẩu');
   }
+  if (user.bannedUntil && user.bannedUntil > new Date()) throw new HttpError(403, banMessage(user));
   const hasCharacter = !!(await Character.exists({ userId: user._id }));
-  res.json({ token: signToken(user._id), user: user.toPublic(), hasCharacter });
+  res.json({ token: signToken(user._id, user.tokenVersion || 0), user: user.toPublic(), hasCharacter });
 });
 
 export const me = asyncHandler(async (req, res) => {

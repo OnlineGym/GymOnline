@@ -15,6 +15,11 @@ const LIMITS = {
   'ix:cancel': [2, 4],
   presence: [1, 3],
   goto: [0.5, 2],
+  'music:add': [0.2, 2],
+  'music:skip': [0.5, 2],
+  'music:ended': [0.5, 2],
+  'music:error': [0.5, 2],
+  'music:seed': [0.1, 1],
   default: [8, 15],
 };
 

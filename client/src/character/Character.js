@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { ANIMS, ANIM_PROPS, BASE_POSE, EMOTES, HIPS } from './animations.js';
+import { quality } from '../core/settings.js';
 
 /**
  * Nhân vật chibi tròn tròn, lùn lùn: đầu to, thân tròn như quả trứng, tay chân ngắn có khớp.
@@ -85,12 +86,15 @@ export class Character {
     this.model = new THREE.Group();
     this.root.add(this.model);
 
+    // Mức đồ họa Cao: vải có sheen (ánh vải), da mịn có chút ánh hồng, tóc bóng nhẹ
+    const phys = quality().physical;
+    const M = (o, extra) => (phys ? new THREE.MeshPhysicalMaterial({ ...o, ...extra }) : new THREE.MeshStandardMaterial(o));
     this.mats = {
-      skin: new THREE.MeshStandardMaterial({ roughness: 0.6 }),
-      top: new THREE.MeshStandardMaterial({ roughness: 0.75 }),
-      bottom: new THREE.MeshStandardMaterial({ roughness: 0.8 }),
-      shoes: new THREE.MeshStandardMaterial({ roughness: 0.5 }),
-      hair: new THREE.MeshStandardMaterial({ roughness: 0.7 }),
+      skin: M({ roughness: 0.55 }, { sheen: 0.35, sheenRoughness: 0.6, sheenColor: new THREE.Color('#ffb4a2') }),
+      top: M({ roughness: 0.78 }, { sheen: 0.8, sheenRoughness: 0.75, sheenColor: new THREE.Color('#ffffff') }),
+      bottom: M({ roughness: 0.8 }, { sheen: 0.6, sheenRoughness: 0.8, sheenColor: new THREE.Color('#ffffff') }),
+      shoes: M({ roughness: 0.45 }, { clearcoat: 0.4, clearcoatRoughness: 0.4 }),
+      hair: M({ roughness: 0.5 }, { sheen: 0.5, sheenRoughness: 0.35, sheenColor: new THREE.Color('#ffffff') }),
       lips: new THREE.MeshStandardMaterial({ color: '#d9536f', roughness: 0.5 }),
     };
 
@@ -458,6 +462,66 @@ export class Character {
         this.accBody.add(t);
         break;
       }
+      case 'sunglasses': {
+        const lens = new THREE.MeshStandardMaterial({ color: '#0b0d12', roughness: 0.12, metalness: 0.5 });
+        for (const s of [-1, 1]) {
+          const l = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), lens);
+          l.scale.set(1.1, 0.8, 0.35);
+          l.position.set(s * 0.15, 0.4, 0.39);
+          this.accHead.add(l);
+        }
+        const nose = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.018, 0.02), lens);
+        nose.position.set(0, 0.42, 0.42);
+        this.accHead.add(nose);
+        break;
+      }
+      case 'beanie': {
+        const wool = new THREE.MeshStandardMaterial({ color: '#b91c1c', roughness: 0.95 });
+        const c = new THREE.Mesh(new THREE.SphereGeometry(0.44, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.46), wool);
+        c.position.y = 0.38;
+        c.castShadow = true;
+        this.accHead.add(c);
+        const pom = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 10), new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 1 }));
+        pom.position.y = 0.85;
+        this.accHead.add(pom);
+        break;
+      }
+      case 'visor': {
+        const v = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5 });
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.405, 0.035, 8, 32), v);
+        t.position.y = 0.56;
+        t.rotation.x = Math.PI / 2 - 0.1;
+        this.accHead.add(t);
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.02, 20, 1, false, -Math.PI / 2, Math.PI), new THREE.MeshStandardMaterial({ color: '#0ea5e9', roughness: 0.4 }));
+        brim.position.set(0, 0.56, 0.27);
+        brim.rotation.x = 0.12;
+        this.accHead.add(brim);
+        break;
+      }
+      case 'medal': {
+        const r = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.016, 6, 24), new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.7 }));
+        r.rotation.x = Math.PI / 2 - 0.55;
+        r.position.set(0, 0.36, 0.08);
+        this.accBody.add(r);
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.02, 20), SHARED.gold);
+        d.rotation.x = Math.PI / 2;
+        d.position.set(0, 0.17, 0.3);
+        this.accBody.add(d);
+        break;
+      }
+      case 'backpack': {
+        const bag = new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.8 });
+        const main = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), bag);
+        main.scale.set(1, 1.15, 0.6);
+        main.position.set(0, 0.2, -0.34);
+        main.castShadow = true;
+        this.accBody.add(main);
+        const pocket = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), new THREE.MeshStandardMaterial({ color: '#0ea5e9', roughness: 0.7 }));
+        pocket.scale.set(1.1, 0.8, 0.5);
+        pocket.position.set(0, 0.12, -0.46);
+        this.accBody.add(pocket);
+        break;
+      }
       case 'crown': {
         const c = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.14, 16, 1, true), SHARED.gold);
         c.position.y = 0.8;
@@ -754,7 +818,8 @@ export class Character {
    * ctx: { phase, p, beat, params, lean } – nhịp tập / tham số animation
    */
   update(dt, ctx = {}) {
-    this.time += dt;
+    // timeScale: tốc độ animation theo nhịp người chơi (minigame cardio)
+    this.time += dt * (ctx.timeScale ?? 1);
     if (this.lod >= 2) {
       // hình nộm: chỉ nhún nhẹ, không tính khớp
       if (this.low && this.lod === 2) this.low.position.y = this.anim === 'walk' || this.anim === 'run' ? Math.abs(Math.sin(this.time * 10)) * 0.04 : 0;

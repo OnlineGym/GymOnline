@@ -16,6 +16,9 @@ export async function runMigrations() {
     const r = await Character.updateMany({ [k]: { $exists: false } }, { $set: { [k]: v } });
     changed += r.modifiedCount;
   }
+  // Người chơi cũ không cần xem lại hướng dẫn tân thủ
+  const tut = await Character.updateMany({ tutorialDone: { $exists: false } }, { $set: { tutorialDone: true } });
+  changed += tut.modifiedCount;
   // Đồng bộ index mới (leaderboard theo nhóm cơ, tuần, guild...)
   await Character.syncIndexes();
   if (changed) console.log(`[migrate] Đã cập nhật ${changed} trường cho dữ liệu cũ`);

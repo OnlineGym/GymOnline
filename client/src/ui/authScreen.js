@@ -23,6 +23,15 @@ export function showAuthScreen() {
     const rowPass = h('div', { class: 'field' }, h('label', {}, 'Mật khẩu (tối thiểu 6 ký tự)'), fPass);
     const rowPass2 = h('div', { class: 'field' }, h('label', {}, 'Xác nhận mật khẩu'), fPass2);
 
+    const fTerms = h('input', { type: 'checkbox' });
+    const rowTerms = h(
+      'label',
+      { class: 'terms-row' },
+      fTerms,
+      h('span', {}, 'Tôi đồng ý với ', h('a', { href: '/terms.html', target: '_blank', rel: 'noopener' }, 'Điều khoản'), ' và ', h('a', { href: '/privacy.html', target: '_blank', rel: 'noopener' }, 'Chính sách riêng tư'))
+    );
+    const forgotLink = h('button', { type: 'button', class: 'link-btn', onclick: () => showForgot(fLogin.value.trim()) }, 'Quên mật khẩu?');
+
     const tabLogin = h('button', { type: 'button', class: 'active' }, 'Đăng nhập');
     const tabReg = h('button', { type: 'button' }, 'Đăng ký');
 
@@ -34,6 +43,8 @@ export function showAuthScreen() {
       rowUser.classList.toggle('hidden', m !== 'register');
       rowEmail.classList.toggle('hidden', m !== 'register');
       rowPass2.classList.toggle('hidden', m !== 'register');
+      rowTerms.classList.toggle('hidden', m !== 'register');
+      forgotLink.classList.toggle('hidden', m !== 'login');
       fPass.autocomplete = m === 'login' ? 'current-password' : 'new-password';
       submit.textContent = m === 'login' ? 'Đăng nhập' : 'Tạo tài khoản';
       err.textContent = '';
@@ -52,8 +63,11 @@ export function showAuthScreen() {
       rowEmail,
       rowPass,
       rowPass2,
+      rowTerms,
       err,
-      submit
+      submit,
+      forgotLink,
+      h('div', { class: 'auth-foot' }, h('a', { href: '/home.html' }, 'Giới thiệu'), ' • ', h('a', { href: '/terms.html', target: '_blank', rel: 'noopener' }, 'Điều khoản'), ' • ', h('a', { href: '/privacy.html', target: '_blank', rel: 'noopener' }, 'Riêng tư'))
     );
 
     form.onsubmit = async (e) => {
@@ -69,6 +83,7 @@ export function showAuthScreen() {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fEmail.value.trim())) return (err.textContent = 'Email không hợp lệ');
         if (fPass.value.length < 6) return (err.textContent = 'Mật khẩu tối thiểu 6 ký tự');
         if (fPass.value !== fPass2.value) return (err.textContent = 'Mật khẩu xác nhận không khớp');
+        if (!fTerms.checked) return (err.textContent = 'Bạn cần đồng ý với Điều khoản và Chính sách riêng tư');
       } else if (!fLogin.value.trim() || !fPass.value) {
         return (err.textContent = 'Vui lòng nhập đầy đủ thông tin');
       }
@@ -95,5 +110,92 @@ export function showAuthScreen() {
     setMode('login');
     uiRoot().append(screen);
     setTimeout(() => fLogin.focus(), 100);
+  });
+}
+
+// Quên mật khẩu: nhập email để nhận link
+function showForgot(prefill = '') {
+  const email = h('input', { class: 'input', type: 'email', maxlength: 100, placeholder: 'ban@email.com', autocomplete: 'email', value: prefill.includes('@') ? prefill : '' });
+  const info = h('div', { class: 'tagline' }, 'Nhập email đã đăng ký, chúng tôi sẽ gửi link đặt lại mật khẩu.');
+  const err = h('div', { class: 'error-text' });
+  const submit = h('button', { class: 'btn', type: 'submit', style: { width: '100%' } }, 'Gửi link');
+  const close = () => screen.remove();
+  const form = h(
+    'form',
+    {
+      class: 'auth-card panel',
+      novalidate: true,
+      onsubmit: async (e) => {
+        e.preventDefault();
+        err.textContent = '';
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) return (err.textContent = 'Email không hợp lệ');
+        submit.disabled = true;
+        try {
+          const r = await api.forgot(email.value.trim());
+          info.textContent = r.message;
+          form.classList.add('sent');
+        } catch (ex) {
+          err.textContent = ex.message;
+        } finally {
+          submit.disabled = false;
+        }
+        return undefined;
+      },
+    },
+    h('div', { class: 'logo' }, 'QUÊN', h('span', {}, 'MẬT KHẨU')),
+    info,
+    h('div', { class: 'field' }, h('label', {}, 'Email'), email),
+    err,
+    submit,
+    h('button', { type: 'button', class: 'link-btn', onclick: close }, '← Quay lại đăng nhập')
+  );
+  const screen = h('div', { class: 'screen', style: { zIndex: 60 } }, form);
+  uiRoot().append(screen);
+  setTimeout(() => email.focus(), 100);
+}
+
+// Đặt lại mật khẩu từ link trong email. Resolve khi xong hoặc khi người dùng bỏ qua
+export function showResetScreen(token) {
+  return new Promise((resolve) => {
+    const p1 = h('input', { class: 'input', type: 'password', maxlength: 72, placeholder: 'Mật khẩu mới (tối thiểu 6 ký tự)', autocomplete: 'new-password' });
+    const p2 = h('input', { class: 'input', type: 'password', maxlength: 72, placeholder: 'Nhập lại mật khẩu mới', autocomplete: 'new-password' });
+    const err = h('div', { class: 'error-text' });
+    const submit = h('button', { class: 'btn', type: 'submit', style: { width: '100%' } }, 'Đặt lại mật khẩu');
+    const done = (msg) => {
+      screen.remove();
+      resolve(msg);
+    };
+    const form = h(
+      'form',
+      {
+        class: 'auth-card panel',
+        novalidate: true,
+        onsubmit: async (e) => {
+          e.preventDefault();
+          err.textContent = '';
+          if (p1.value.length < 6) return (err.textContent = 'Mật khẩu tối thiểu 6 ký tự');
+          if (p1.value !== p2.value) return (err.textContent = 'Mật khẩu xác nhận không khớp');
+          submit.disabled = true;
+          try {
+            const r = await api.resetPassword(token, p1.value);
+            auth.token = null;
+            done(r.message);
+          } catch (ex) {
+            err.textContent = ex.message;
+            submit.disabled = false;
+          }
+          return undefined;
+        },
+      },
+      h('div', { class: 'logo' }, 'ĐẶT LẠI', h('span', {}, 'MẬT KHẨU')),
+      h('div', { class: 'field' }, h('label', {}, 'Mật khẩu mới'), p1),
+      h('div', { class: 'field' }, h('label', {}, 'Xác nhận mật khẩu'), p2),
+      err,
+      submit,
+      h('button', { type: 'button', class: 'link-btn', onclick: () => done(null) }, '← Về đăng nhập')
+    );
+    const screen = h('div', { class: 'screen', style: { zIndex: 60 } }, form);
+    uiRoot().append(screen);
+    setTimeout(() => p1.focus(), 100);
   });
 }

@@ -38,6 +38,8 @@ const characterSchema = new mongoose.Schema(
     guildId: { type: mongoose.Schema.Types.ObjectId, ref: 'Guild', default: null, index: true },
     groupsTrained: [{ type: String }],
     wins: { type: Number, default: 0 },
+    lastPos: { f: Number, x: Number, z: Number },
+    tutorialDone: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -83,6 +85,7 @@ characterSchema.methods.toPublic = function toPublic() {
     buffs: this.activeBuffs(),
     guildId: this.guildId ? this.guildId.toString() : null,
     wins: this.wins || 0,
+    tutorialDone: !!this.tutorialDone,
   };
 };
 

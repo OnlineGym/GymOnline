@@ -29,6 +29,9 @@ router.post(
     item: rules.oneOf(Object.keys(ITEMS), { optional: true, label: 'Vật phẩm' }),
     qty: rules.number({ min: 1, max: 10, optional: true, label: 'Số lượng' }),
     message: rules.string({ max: 100, optional: true, label: 'Lời nhắn' }),
+    wantCoins: rules.number({ min: 0, max: 10000, optional: true, label: 'Xu yêu cầu' }),
+    wantItem: rules.oneOf(Object.keys(ITEMS), { optional: true, label: 'Vật phẩm yêu cầu' }),
+    wantQty: rules.number({ min: 1, max: 10, optional: true, label: 'Số lượng yêu cầu' }),
   }),
   E.sendGift
 );

@@ -53,6 +53,9 @@ router.post(
   S.createGuild
 );
 router.post('/guilds/:id/join', S.joinGuild);
+router.patch('/guilds/mine', validateBody({ description: rules.string({ max: 200, optional: true, label: 'Mô tả' }) }), S.updateGuild);
+router.delete('/guilds/mine', S.disbandGuild);
+router.post('/guilds/transfer', validateBody({ userId: rules.string({ min: 24, max: 24, label: 'userId' }) }), S.transferGuild);
 router.post('/guilds/invite', strict(30), validateBody({ userId: rules.string({ min: 24, max: 24, label: 'userId' }) }), S.inviteGuild);
 router.post('/guilds/leave', S.leaveGuild);
 router.post('/guilds/kick', validateBody({ userId: rules.string({ min: 24, max: 24, label: 'userId' }) }), S.kickGuild);

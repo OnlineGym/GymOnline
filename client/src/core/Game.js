@@ -20,6 +20,11 @@ import { openFinder } from '../ui/finder.js';
 import { openInteractionMenu, closeInteractionMenu } from '../ui/interactionMenu.js';
 import { notify } from '../ui/notifications.js';
 import { showCreatorScreen } from '../ui/creatorScreen.js';
+import { openAccount } from '../ui/account.js';
+import { openQuests, promptCheckin } from '../ui/quests.js';
+import { Tutorial } from '../ui/tutorial.js';
+import { openMatches, openNotifications } from '../ui/social.js';
+import { setNotifBadge } from '../ui/notifications.js';
 import { showChannelScreen } from '../ui/channelScreen.js';
 import { toast } from '../ui/dom.js';
 import { api, auth } from '../network/api.js';
@@ -27,7 +32,14 @@ import { audio } from './audio.js';
 import { settings, onSettingsChange, updateSettings } from './settings.js';
 import { isMobile } from './device.js';
 import { IxController } from './gameIx.js';
-import { ANIM_INDEX, ACHIEVEMENTS, FLOORS, WORLD_BOUNDS, FLOOR_BOUNDS, PAIR_EMOTES, CHALLENGES, activeEvents } from '@shared/constants.js';
+import { Locomotion } from './locomotion.js';
+import { Swim } from './swim.js';
+import { WorkoutGame } from './workoutGame.js';
+import { MusicRoom } from '../ui/musicRoom.js';
+import { POOL } from '../world/floors.js';
+import { inHub } from '../world/transit.js';
+import { QUALITY_ORDER, QUALITY_LABEL } from './settings.js';
+import { ITEMS, ANIM_INDEX, ACHIEVEMENTS, FLOORS, WORLD_BOUNDS, FLOOR_BOUNDS, PAIR_EMOTES, CHALLENGES, activeEvents } from '@shared/constants.js';
 
 const WALK_SPEED = 2.6;
 const RUN_SPEED = 5.2;
@@ -36,7 +48,6 @@ const SEND_INTERVAL = 1 / 12; // gửi vị trí ~12 lần/giây
 const GRAVITY = 13;
 const JUMP_V = 4.6;
 const BUSY_ANIMS = new Set(['idle', 'walk', 'run', 'jump', 'climb', 'elevator']);
-const QUALITY_ORDER = ['low', 'medium', 'high'];
 const SMALL_TALK = ['Nóng quá 🥵', 'Thư giãn ghê', 'Hôm nay tập gì?', 'Sauna đã thật', '😌', 'Mai tập chân nhé'];
 
 /**
@@ -86,10 +97,25 @@ export class Game {
     this._bindInput();
     this._bindNetwork();
     this.ix = new IxController(this);
+    this.loco = new Locomotion(this);
+    this.swim = new Swim(this);
+    this.wg = new WorkoutGame(this.hud.mgEl);
+    this.musicRoom = new MusicRoom(this);
+    this.rampY = 0;
+    this.mgState = {};
     this.chat.isBlocked = (uid) => this.blocked.has(uid);
     this.applyInit(initData);
+    this._keepOnline();
 
     this.hud.setCharacter(character);
+    setNotifBadge((n) => this.hud.setNotifBadge(n));
+    if (user.role === 'admin') this.hud.addMenuButton('🛠️', 'admin', 'Trang quản trị', () => window.open('/admin.html', '_blank', 'noopener'));
+    // Tân thủ: hướng dẫn trước, xong mới nhắc điểm danh để không rối
+    setTimeout(() => {
+      if (!character.tutorialDone) this.tutorial = new Tutorial(this);
+      else promptCheckin(this);
+      if (!user.emailVerified) this.chat.system('📧 Email của bạn chưa xác minh. Vào 👤 Tài khoản để gửi lại link, phòng khi cần lấy lại mật khẩu.');
+    }, 1500);
     if (initData.guild) this.me.setTag(initData.guild.tag);
     api
       .history(1)
@@ -159,7 +185,12 @@ export class Game {
         onInteract: () => this.interact(),
         onEmote: () => this.emoteWheel.toggle(),
         onChat: () => this.chat.toggle(),
-        onJump: (down) => this.onSpace(down),
+        onJump: (down) => {
+          this.mobileUp = down;
+          this.onSpace(down);
+        },
+        onDive: (down) => (this.mobileDown = down),
+        onPose: () => this.togglePose(this.pose === 'sitFloor' ? 'lieRest' : this.pose === 'lieRest' ? 'lieRest' : 'sitFloor'),
       });
       this.chat.onUnread = (n) => this.mobile.setUnread(n);
     }
@@ -171,7 +202,10 @@ export class Game {
     const i = this.input;
     i.on('interact', () => this.interact());
     i.on('emoteWheel', () => this.emoteWheel.toggle());
+    i.on('key', (code, down) => this._onKey(code, down));
+    i.on('pose', (name) => this.togglePose(name));
     i.on('emoteHotkey', (idx) => {
+      if (this.loco?.panelCab || this.wg?.active) return;
       const name = Object.keys(EMOTES)[idx];
       if (name) this.doEmote(name);
     });
@@ -184,6 +218,7 @@ export class Game {
     i.on('finder', () => this.openMenu('finder'));
     i.on('social', () => this.openMenu('social'));
     i.on('inventory', () => this.openMenu('inventory'));
+    i.on('quests', () => this.openMenu('quests'));
     i.on('space', () => this.onSpace(true));
     i.on('spaceUp', () => this.onSpace(false));
     i.on('spar', (a) => this.mode === 'ix' && this.ix.active?.kind === 'spar' && this.ix.input(a));
@@ -195,10 +230,35 @@ export class Game {
     i.on('click', (x, y) => this._onClick(x, y));
   }
 
+  // Phím cho minigame tập luyện + bảng thang máy
+  _onKey(code, down) {
+    if (this.wg.active && (this.mode === 'working' || this.mode === 'utility')) {
+      if (code !== settings.keys.interact) this.wg.key(code, down);
+      return;
+    }
+    if (down) this.loco.onKey(code);
+  }
+
+  // Tư thế nghỉ: C ngồi bệt, Z nằm (bấm lại / di chuyển / Space để đứng dậy)
+  togglePose(name) {
+    if (this.mode !== 'free' || this.jumpY > 0.02) return;
+    this.pose = this.pose === name ? null : name;
+    this.me.stopEmote();
+    this.me.play(this.pose || 'idle');
+  }
+
   onSpace(down) {
     if (this.mode === 'ix') return this.ix.onSpace(down);
+    if (this.pose && this.mode === 'free') {
+      if (down) this.togglePose(this.pose); // đứng dậy thay vì nhảy
+      return;
+    }
+    if (this.mode === 'swim') {
+      if (down && this.swim.canClimbOut()) this.swim.climbOut();
+      return;
+    }
     if (!down) return;
-    if (this.mode === 'working' && this.session?.eq.info.klass) return this._judgeBeat();
+    if (this.mode === 'working' || this.mode === 'utility') return;
     if ((this.mode === 'free' || this.mode === 'running') && this.jumpY <= 0.001) {
       this.jumpV = JUMP_V;
       this.jumpY = 0.001;
@@ -209,7 +269,16 @@ export class Game {
   openMenu(name) {
     audio.sfx('click');
     closeInteractionMenu();
+    this.lastMenu = name;
     switch (name) {
+      case 'quests':
+        return openQuests(this);
+      case 'notifications':
+        return openNotifications(this);
+      case 'matches':
+        return openMatches();
+      case 'account':
+        return openAccount(this);
       case 'leaderboard':
         return openLeaderboard(this.user.id, (uid) => openProfile(this, uid));
       case 'history':
@@ -361,6 +430,20 @@ export class Game {
     this.remotes.delete(nid);
   }
 
+  // Đổi sang tab khác nhân vật vẫn online; chỉ tắt hẳn tab mới offline
+  _keepOnline() {
+    // Tab giữ Web Lock không bị Chrome đóng băng hay giải phóng khi nằm nền
+    navigator.locks?.request('gym-online-keepalive', { mode: 'shared' }, () => new Promise(() => {})).catch(() => {});
+    window.addEventListener('pagehide', () => this.net.bye());
+    const release = () => this.wg.releaseKeys();
+    window.addEventListener('blur', release);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) release();
+      // Quay lại mà kết nối đã rớt thì nối lại ngay, không chờ lần thử kế tiếp
+      else if (this.net.socket && !this.net.socket.connected) this.net.socket.connect();
+    });
+  }
+
   _bindNetwork() {
     const n = this.net;
     n.onReinit = (data) => {
@@ -374,7 +457,7 @@ export class Game {
       for (const info of e) this._addRemote(info);
     });
     n.on('s', ({ t, p }) => {
-      for (const [nid, x, y, z, r, an] of p) this.remotes.get(nid)?.push(t, x, y, z, r, an);
+      for (const [nid, x, y, z, r, an, pp] of p) this.remotes.get(nid)?.push(t, x, y, z, r, an, pp);
     });
     n.on('lock', ({ id, nid }) => {
       this.equipment.setLock(id, nid);
@@ -489,15 +572,23 @@ export class Game {
           ],
         });
         break;
+      case 'announce':
+        notify({ icon: '📢', title: 'Thông báo từ quản trị viên', text: d.text, timeout: 15000 });
+        break;
+      case 'quest_done':
+        audio.sfx('coin');
+        notify({ icon: d.icon || '📋', title: 'Hoàn thành nhiệm vụ!', text: d.label, timeout: 8000, actions: [{ label: 'Nhận thưởng', primary: true, fn: () => this.openMenu('quests') }] });
+        break;
       case 'guild_kicked':
-        toast(`Bạn đã rời CLB ${d.guildName}`, 'error');
+        toast(d.disbanded ? `CLB ${d.guildName} đã giải tán` : `Bạn đã rời CLB ${d.guildName}`, 'error');
         this.onGuildChange(null);
         break;
       case 'gift':
         this._giftNotify(d);
         break;
       case 'gift_accepted':
-        toast(`🎁 ${from} đã nhận quà của bạn`, 'success');
+        toast(`🎁 ${from} đã đồng ý`, 'success');
+        api.getCharacter().then((r) => this.onCharacter(r.character)).catch(() => {});
         break;
       case 'gift_declined':
         toast(`🎁 ${from} từ chối quà – đã hoàn lại cho bạn`, 'info');
@@ -509,22 +600,24 @@ export class Game {
   }
 
   _giftNotify(d) {
-    const what = [d.coins ? `🪙 ${d.coins} xu` : null, d.item ? `${d.qty}x ${d.item}` : null].filter(Boolean).join(' + ');
+    const nameOf = (k) => ITEMS[k]?.label || k;
+    const what = [d.coins ? `🪙 ${d.coins} xu` : null, d.item ? `${d.qty}x ${nameOf(d.item)}` : null].filter(Boolean).join(' + ');
+    const want = [d.wantCoins ? `🪙 ${d.wantCoins} xu` : null, d.wantItem ? `${d.wantQty}x ${nameOf(d.wantItem)}` : null].filter(Boolean).join(' + ');
     notify({
-      icon: '🎁',
-      title: `${d.from?.name || d.from} tặng bạn ${what}`,
+      icon: want ? '🔄' : '🎁',
+      title: want ? `${d.from?.name || d.from} đề nghị đổi ${what} lấy ${want} của bạn` : `${d.from?.name || d.from} tặng bạn ${what}`,
       text: d.message || '',
       timeout: 60000,
       actions: [
         {
-          label: 'Nhận',
+          label: want ? 'Đồng ý đổi' : 'Nhận',
           primary: true,
           fn: async () => {
             try {
               const r = await api.acceptGift(d.id);
               this.onCharacter(r.character);
               audio.sfx('coin');
-              toast('🎁 Đã nhận quà!', 'success');
+              toast(want ? '🔄 Đổi thành công!' : '🎁 Đã nhận quà!', 'success');
             } catch (e) {
               toast(e.message, 'error');
             }
@@ -624,6 +717,7 @@ export class Game {
   // ======================= TẦNG =======================
   // Vào tầng (đã được server chấp thuận): hiện loading nếu tầng chưa dựng
   async enterFloor(f, pos, text, locks) {
+    if (this.mode === 'ramp') this.loco._exit();
     const needBuild = !this.building.isBuilt(f);
     if (f !== this.floorId || needBuild) {
       this.hud.showFloorOverlay(text || `Đang tới ${FLOORS[f].name}...`);
@@ -718,6 +812,7 @@ export class Game {
   // ======================= MÁY TẬP / TIỆN ÍCH =======================
   async interact() {
     audio.unlock();
+    if (this.mode === 'swim') return this.swim.climbOut();
     if (this.mode === 'working' || this.mode === 'utility' || this.mode === 'running') return this.stopActivity();
     if (this.mode !== 'free' || this.busyRequest) return undefined;
     const eq = this.equipment.nearest(this.floorId, this.pos, 1.6);
@@ -784,9 +879,31 @@ export class Game {
       else this.hud.showWorkout({ label: eq.info.label, en: 'Đang sử dụng...' }, null);
     } else {
       this.mode = 'working';
-      this.hud.showWorkout(eq.info, `+${STAT_LABELS[eq.info.group]}`, { klass: !!eq.info.klass });
-      if (eq.info.klass) toast(`🎵 Lớp ${eq.info.label}: bấm SPACE đúng nhịp để tăng điểm đồng bộ (tối đa +30% EXP)`, 'info', 4500);
+      this.hud.showWorkout(eq.info, `+${STAT_LABELS[eq.info.group]}`, {});
+      // Minigame: người chơi tự thực hiện từng rep
+      this.wg.start(eq, { beatFn: () => audio.getBeat() });
+      // Camera góc 3/4 phía trước, gần hơn để thấy rõ nhân vật đang tập
+      this.cam.yaw = this.ry + 0.75;
+      this.cam.pitch = 0.28;
+      this.cam.distance = Math.min(this.cam.maxDist, 4.2);
     }
+  }
+
+  // Bảng tập nằm ở đáy (desktop) -> đẩy khung hình lên để nhân vật nằm phía trên bảng
+  _updateViewOffset() {
+    if (this._vw !== window.innerWidth || this._vh !== window.innerHeight) {
+      this._vw = window.innerWidth;
+      this._vh = window.innerHeight;
+      this._viewShift = -1;
+    }
+    const cam = this.ctx.camera;
+    const panel = this.mode === 'working' && !this.mobile ? this.hud.workout : null;
+    const w = window.innerWidth;
+    const shift = panel && !panel.classList.contains('hidden') && w > 640 ? Math.round(panel.offsetHeight * 0.55) : 0;
+    if (shift === this._viewShift) return;
+    this._viewShift = shift;
+    if (shift) cam.setViewOffset(w, window.innerHeight, 0, shift, w, window.innerHeight);
+    else cam.clearViewOffset();
   }
 
   // Chạy vòng sân thượng: được di chuyển tự do, đếm vòng theo góc quanh tâm đường chạy
@@ -870,8 +987,18 @@ export class Game {
     const wasMode = this.mode;
     const now = this.ctx.clockTime;
     const duration = start !== undefined ? now - start : 0;
-    const reps = wasMode === 'running' ? this.session.laps : start !== undefined ? Math.floor(duration / eq.info.rep) : 0;
-    const sync = eq.info.klass ? this._syncScore() : 0;
+    let reps = wasMode === 'running' ? this.session.laps : start !== undefined ? Math.floor(duration / eq.info.rep) : 0;
+    let form = 0;
+    let activeSec = this.session.activeSec || 0;
+    if (this.wg.active) {
+      const r = this.wg.stop();
+      reps = r.reps;
+      form = r.form;
+      activeSec = r.active;
+    }
+    eq.manualP = undefined;
+    eq.manualPhase = undefined;
+    const sync = eq.info.klass ? form : 0;
     this.mode = 'free';
     this.session = null;
     this.equipment.clearUser(this.me);
@@ -888,8 +1015,12 @@ export class Game {
         this.net.emit('equipment:release');
         return toast('Buổi tập quá ngắn (tối thiểu 3 giây) nên không được tính', 'error');
       }
+      if (!reps && activeSec < 2) {
+        this.net.emit('equipment:release');
+        return toast('Bạn chưa tập gì nên buổi này không được tính', 'info');
+      }
       try {
-        const res = await api.logWorkout(eq.type, Math.round(duration), reps, { slot: eq.slot || 0, sync: Math.round(sync * 100) / 100 });
+        const res = await api.logWorkout(eq.type, Math.round(duration), reps, { slot: eq.slot || 0, sync: Math.round(sync * 100) / 100, form: eq.info.klass ? undefined : Math.round(form * 100) / 100, active: Math.round(activeSec) });
         this._onReward(res);
       } catch (e) {
         toast(`Không lưu được buổi tập: ${e.message}`, 'error');
@@ -903,7 +1034,7 @@ export class Game {
     this.onCharacter(character);
     this.todayCalories += reward.calories;
     this.hud.setTodayCalories(this.todayCalories);
-    const B = { golden: '🌅x2', buff_exp: '🥤', buff_cal: '🧃', buff_stat: '💧', duo: '🤝', spotter: '🫡', party: '👥', sync: '🎵' };
+    const B = { golden: '🌅x2', buff_exp: '🥤', buff_cal: '🧃', buff_stat: '💧', duo: '🤝', spotter: '🫡', party: '👥', sync: '🎵', form: '🎯' };
     const bonus = reward.bonuses.map((b) => B[b] || '').join('');
     toast(`✅ +${reward.exp} EXP ${bonus} • +${reward.statGain} ${STAT_LABELS[reward.stat]} • 🔥 ${reward.calories} kcal • 🪙 +${reward.coins}`, 'success', 4000);
     audio.sfx('coin');
@@ -924,12 +1055,34 @@ export class Game {
     const beat = audio.getBeat();
 
     if (this.mode === 'free' || this.mode === 'running') this._updateMovement(dt);
+    else if (this.mode === 'ramp') this.loco.updateRamp(dt);
+    else if (this.mode === 'swim') this.swim.update(dt);
     else if (this.mode === 'approach') this._updateApproach(dt);
     else if (this.mode === 'working' || this.mode === 'utility') this._updateActivity(t);
     if (this.mode === 'running') {
       this._updateLaps();
       const s = this.session;
-      this.hud.updateWorkout({ reps: s.laps, time: t - s.start, cal: (s.eq.info.cal * (t - s.start)) / 60, repProgress: (Math.abs(s.angle) % (Math.PI * 2)) / (Math.PI * 2) });
+      // Chạy vòng: chỉ tính lúc đang di chuyển
+      if (Math.hypot(this.vel.x, this.vel.z) > 0.5) s.activeSec = (s.activeSec || 0) + dt;
+      this.hud.updateWorkout({ reps: s.laps, time: t - s.start, cal: (s.eq.info.cal * (s.activeSec || 0)) / 60, repProgress: (Math.abs(s.angle) % (Math.PI * 2)) / (Math.PI * 2) });
+    }
+    if (this.mode === 'free') {
+      // Bước vào thang bộ / thang cuốn hoặc xuống hồ bơi -> tự chuyển chế độ
+      if (!this.loco.tryEnterRamp()) this.swim.tryEnter();
+    }
+    this.loco.updateElevatorPanel();
+    this.loco.update();
+    if (this.mobile && this._swimUi !== (this.mode === 'swim')) {
+      this._swimUi = this.mode === 'swim';
+      this.mobile.setSwimming(this._swimUi);
+    }
+    if (this.wg.active) {
+      this.mgState = this.wg.update(dt) || {};
+      const meq = this.session?.eq;
+      if (meq) {
+        meq.manualP = this.mgState.p;
+        meq.manualPhase = this.mgState.phase;
+      }
     }
     const ixCtx = this.ix.update(dt);
 
@@ -937,6 +1090,7 @@ export class Game {
     this.me.root.position.x = this.pos.x;
     this.me.root.position.z = this.pos.z;
     if (this.mode === 'free' || this.mode === 'running') this.me.root.position.y = this.jumpY;
+    else if (this.mode === 'ramp' || this.mode === 'swim') this.me.root.position.y = this.rampY;
     this.me.root.rotation.y = lerpAngle(this.me.root.rotation.y, this.ry, 1 - Math.exp(-dt * 14));
     this.me.update(dt, { ...this._animCtx(this.me, t, beat, this.session?.eq), ...ixCtx });
 
@@ -957,7 +1111,7 @@ export class Game {
       else if (r.char._eqUser) this.equipment.clearUser(r.char);
       r.char._eqUser = !!eq;
       r.char.play(r.anim);
-      r.char.update(dt, this._animCtx(r.char, t, beat, eq));
+      r.char.update(dt, this._animCtx(r.char, t, beat, eq, r.pp));
       if (this.mode === 'working' && r.dist < 3.5 && !BUSY_ANIMS.has(r.anim)) duo = true;
     }
     if (this.mode === 'working') this._updateDuo(duo);
@@ -966,16 +1120,34 @@ export class Game {
     this.burst.update(dt);
     const positions = [this.pos];
     for (const r of this.remotes.values()) if (r.dist < 12) positions.push(r.position);
-    this.building.update(dt, t, positions, { beat });
+    this.building.update(dt, t, positions, { beat }, { onRamp: this.loco.onRamp || this.mode === 'elevator' });
 
-    this.cam.ceiling = this.floorId === 4 ? 40 : 3.75;
-    this.cam.update(dt, this.me.root.position, look);
+    // Trần chỉ chặn camera khi không ở sảnh thang (sảnh có giếng thang nhìn xuyên tầng)
+    this.cam.ceiling = this.floorId === 4 || inHub(this.pos.x, this.pos.z) ? 40 : 3.75;
+    // Đang lặn: giữ camera dưới mặt nước để thấy cảnh dưới hồ
+    if (this.mode === 'swim' && this.swim.underwater) this.cam.ceiling = POOL.surface - 0.12;
+    this.cam.floorY = this.mode === 'swim' ? -POOL.depth + 0.25 : this.mode === 'ramp' ? Math.min(0, this.rampY) : 0;
+    this.cam.update(dt, this.me.root.position, look, t);
+    if (this.mode === 'swim' && this.swim.underwater) {
+      // Không cho camera xuyên ra ngoài thành hồ khi đang lặn
+      const c = this.ctx.camera.position;
+      const cx = Math.max(POOL.x1 + 0.15, Math.min(POOL.x2 - 0.15, c.x));
+      const cz = Math.max(POOL.z1 + 0.15, Math.min(POOL.z2 - 0.15, c.z));
+      if (cx !== c.x || cz !== c.z) {
+        c.x = cx;
+        c.z = cz;
+        this.ctx.camera.lookAt(this.cam.smoothFocus);
+      }
+    }
+    this._updateUnderwater();
+    this._updateViewOffset();
     this._updateZone(dt, t);
     this._updatePrompt();
     this._updateWaypoint(t);
     this._sendState(dt);
     this._autoQuality(dt);
     this._saunaTalk(dt);
+    this.tutorial?.update();
 
     const others = [];
     for (const r of this.remotes.values()) others.push({ x: r.position.x, z: r.position.z, userId: r.userId });
@@ -1005,12 +1177,69 @@ export class Game {
     });
   }
 
-  _animCtx(char, t, beat, eq) {
+  _animCtx(char, t, beat, eq, remoteP) {
+    if (char === this.me && this.wg.active && eq) {
+      // Animation local theo thao tác minigame của người chơi
+      const m = this.mgState || {};
+      const phase = m.phase ?? this.equipment.phaseOf(eq, t);
+      return { phase, p: m.p ?? effort(phase), beat, params: eq.info.params, timeScale: m.timeScale };
+    }
     if (eq && eq.user === char) {
       const phase = this.equipment.phaseOf(eq, t);
-      return { phase, p: effort(phase), beat, params: eq.info.params };
+      // Người chơi khác: dùng nhịp động tác thật họ gửi lên (nếu có)
+      const p = remoteP ? remoteP / 100 : effort(phase);
+      return { phase, p, beat, params: eq.info.params };
     }
     return { phase: 0, p: 0, beat };
+  }
+
+  // Dưới nước: sương xanh, lớp phủ gợn sóng
+  _updateUnderwater() {
+    const c = this.ctx.camera.position;
+    const under = this.floorId === 0 && c.y < POOL.surface - 0.02 && c.x > POOL.x1 && c.x < POOL.x2 && c.z > POOL.z1 && c.z < POOL.z2;
+    if (under === !!this._under) return;
+    this._under = under;
+    this.hud.setUnderwater(under);
+    this.ctx.setUnderwater?.(under);
+    const fog = this.scene.fog;
+    if (under && fog) {
+      fog.color.set('#0b5571');
+      fog.near = 0.5;
+      fog.far = 15;
+      this.scene.background = fog.color.clone();
+    } else this.building._applyFog();
+  }
+
+  // Kết thúc buổi bơi (leo lên bờ): ghi buổi tập theo số chặng 25m
+  finishSwim(laps) {
+    if (!this.session) {
+      this.mode = 'free';
+      return;
+    }
+    this.session.laps = laps;
+    this.mode = 'running';
+    this.stopActivity();
+  }
+
+  // Đổi tầng phía client (thang bộ / thang cuốn / thang máy): dy = dịch camera cho liền mạch
+  switchFloorLocal(f, pos, { dy = 0 } = {}) {
+    for (const nid of [...this.remotes.keys()]) this._removeRemote(nid);
+    this.eqByNid.clear();
+    this.floorId = f;
+    this.pos.x = pos.x;
+    this.pos.z = pos.z;
+    this.building.setFloor(f, this.pos);
+    this.hud.setFloor(f);
+    this.zoneId = null;
+    if (dy) this.cam.shiftY(dy);
+    this.me.root.position.set(pos.x, 0, pos.z);
+    this._checkWaypointFloor();
+  }
+
+  applyFloorLocks(f, locks) {
+    if (!locks) return;
+    this.equipment.setFloorLocks(f, locks);
+    for (const [id, nid] of Object.entries(locks)) this.eqByNid.set(nid, id);
   }
 
   _updateMovement(dt) {
@@ -1045,10 +1274,12 @@ export class Game {
     if (mag > 0.08) {
       this.ry = Math.atan2(dx, dz);
       this.me.stopEmote();
+      this.pose = null; // di chuyển thì tự đứng dậy
     }
+    if (this.mode !== 'free') this.pose = null;
     if (this.jumpY > 0.02) this.me.play('jump');
     else if (mag > 0.08) this.me.play(running ? 'run' : 'walk');
-    else this.me.play('idle');
+    else this.me.play(this.pose || 'idle');
   }
 
   _updateApproach(dt) {
@@ -1072,13 +1303,10 @@ export class Game {
     const { eq } = s;
     const elapsed = t - s.start;
     if (this.mode === 'working') {
-      const reps = Math.floor(elapsed / eq.info.rep);
-      if (reps > s.lastRep) {
-        s.lastRep = reps;
-        if (!eq.info.klass) audio.sfx('rep');
-      }
-      this.hud.updateWorkout({ reps, time: elapsed, cal: (eq.info.cal * elapsed) / 60, repProgress: this.equipment.phaseOf(eq, t) });
-      if (eq.info.klass) this.hud.updateSync(audio.getBeat() % 1, this._syncScore());
+      // Số rep do người chơi tự thực hiện trong minigame
+      const reps = this.wg.active ? this.wg.reps : Math.floor(elapsed / eq.info.rep);
+      const prog = this.wg.active ? (this.mgState.p ?? 0) : this.equipment.phaseOf(eq, t);
+      this.hud.updateWorkout({ reps, time: elapsed, cal: (eq.info.cal * (this.wg.active ? this.wg.activeSec : 0)) / 60, repProgress: prog });
     } else if (eq.info.utility === 'timed') {
       this.hud.updateWorkout({ reps: 0, time: elapsed, cal: 0, repProgress: Math.min(1, elapsed / eq.info.duration) });
       if (elapsed >= eq.info.duration) {
@@ -1112,6 +1340,7 @@ export class Game {
   }
 
   _updateZone(dt) {
+    this.musicRoom.update(dt);
     const room = this.building.roomAt(this.pos.x, this.pos.z);
     if (room.id !== this.zoneId) {
       this.zoneId = room.id;
@@ -1121,7 +1350,9 @@ export class Game {
     // Nhạc lớp nhóm: to dần khi ở studio aerobic/spin (tầng 3)
     let music = 0;
     if (this.floorId === 3) {
-      if (room.id === 'aerobic' || room.id === 'spin') music = 1;
+      if (room.id === 'aerobic') music = this.musicRoom.playing ? 0 : 1; // đang phát nhạc YouTube -> tắt nhạc nền tự tạo
+      else if (room.id === 'yoga') music = 0; // phòng yoga: chỉ nhạc YouTube nhẹ nhàng
+      else if (room.id === 'spin') music = 1;
       else if (this.pos.z > 0) music = 0.25;
     }
     audio.setMusicLevel(music);
@@ -1180,27 +1411,53 @@ export class Game {
       ry: +this.ry.toFixed(3),
       a: ANIM_INDEX[this.me.anim] ?? 0,
     };
+    if (this.wg.active && this.mgState.p !== undefined) st.p = +this.mgState.p.toFixed(2);
     const l = this.lastSent;
-    const changed = !l || l.x !== st.x || l.z !== st.z || l.y !== st.y || l.ry !== st.ry || l.a !== st.a;
+    const changed = !l || l.x !== st.x || l.z !== st.z || l.y !== st.y || l.ry !== st.ry || l.a !== st.a || l.p !== st.p;
     if (!changed && this.heartbeat < 1) return;
     this.heartbeat = 0;
     this.lastSent = st;
     this.net.volatile('state', st);
   }
 
-  // Tự giảm đồ họa nếu FPS < 30 trong ~6 giây
+  // Giữ FPS ổn định: trước tiên giảm/tăng dần độ phân giải 3D (không đụng GUI), hết cách mới hạ mức đồ họa
+  _autoResolution(dt) {
+    this.resTimer = (this.resTimer || 0) + dt;
+    this.resFrames = (this.resFrames || 0) + 1;
+    if (this.resTimer < 2) return;
+    const fps = this.resFrames / this.resTimer;
+    this.resTimer = 0;
+    this.resFrames = 0;
+    const cur = this.ctx.resolutionScale;
+    let next = cur;
+    if (fps < 50) next = Math.max(0.6, cur - (fps < 35 ? 0.15 : 0.08));
+    else if (fps > 58) {
+      this.resStable = (this.resStable || 0) + 1;
+      if (this.resStable >= 4 && cur < 1) {
+        next = Math.min(1, cur + 0.05);
+        this.resStable = 0;
+      }
+    } else this.resStable = 0;
+    if (next !== cur) {
+      if (next < cur) this.resStable = 0;
+      this.ctx.setResolutionScale(next);
+    }
+  }
+
+  // Tự giảm đồ họa nếu FPS < 30 trong ~6 giây (dù độ phân giải đã xuống thấp nhất)
   _autoQuality(dt) {
     if (!settings.autoQuality) return;
+    this._autoResolution(dt);
     this.qualityCooldown -= dt;
     this.fpsWindow.push(this.ctx.loopFps || 60);
     if (this.fpsWindow.length < 360) return;
     const avg = this.fpsWindow.reduce((a, b) => a + b, 0) / this.fpsWindow.length;
     this.fpsWindow.length = 0;
     const idx = QUALITY_ORDER.indexOf(settings.quality);
-    if (avg < 30 && idx > 0 && this.qualityCooldown <= 0) {
+    if (avg < 30 && idx > 0 && this.qualityCooldown <= 0 && this.ctx.resolutionScale <= 0.6) {
       this.qualityCooldown = 20;
       updateSettings({ quality: QUALITY_ORDER[idx - 1] });
-      toast(`⚙️ FPS thấp (${Math.round(avg)}) – đã giảm đồ họa xuống "${QUALITY_ORDER[idx - 1] === 'low' ? 'Thấp' : 'Trung bình'}"`, 'info', 4000);
+      toast(`⚙️ FPS thấp (${Math.round(avg)}) – đã giảm đồ họa xuống "${QUALITY_LABEL[QUALITY_ORDER[idx - 1]]}"`, 'info', 4000);
     }
   }
 }

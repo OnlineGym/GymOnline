@@ -112,10 +112,13 @@ export const EQUIPMENT = {
 
   // ---------------- THƯ GIÃN / KHÁC ----------------
   foam_roller: E('Con lăn giãn cơ', 'Foam Roller', 'stamina', 'foamRoll', 3, 3, { kind: 'mat', color: '#f97316', roller: true }),
+  pilates_reformer: E('Giường Pilates Reformer', 'Pilates Reformer', 'core', 'pilatesReformer', 3, 6, { kind: 'reformer' }, { exp: 4 }),
+  pilates_mat: E('Thảm Pilates Roll-up', 'Pilates Roll-up', 'core', 'pilatesRollUp', 3.5, 5, { kind: 'mat', color: '#fb7185' }, { exp: 4 }),
+  pilates_teaser: E('Thảm Pilates Teaser', 'Pilates Teaser', 'core', 'pilatesTeaser', 3, 5, { kind: 'mat', color: '#f9a8d4' }, { exp: 4 }),
   stretch_mat: E('Thảm giãn cơ', 'Stretching', 'stamina', 'stretch', 4, 4, { kind: 'mat', color: '#c084fc' }),
   yoga_mat: E('Lớp Yoga', 'Yoga Class', 'core', 'yogaFlow', 4, 5, { kind: 'mat', color: '#34d399' }, { klass: 'yoga' }),
   aerobic_spot: E('Lớp Aerobic', 'Aerobic Dance', 'stamina', 'aerobic', BEAT_SECONDS_SHARED * 2, 9, { kind: 'aerobicSpot' }, { exp: 1, klass: 'aerobic' }),
-  pool_lane: E('Làn bơi', 'Swimming', 'stamina', 'swim', 1.6, 12, { kind: 'spot', marker: '#38bdf8' }, { exp: 2 }),
+  pool_lane: E('Bơi lội', 'Swimming', 'stamina', 'swim', 25, 12, { kind: 'spot', marker: '#38bdf8' }, { exp: 10, freeMove: true, minRep: 10 }),
   sauna_seat: E('Ghế xông hơi', 'Sauna', 'stamina', 'sauna', 5, 2, { kind: 'spot' }, { exp: 1 }),
   steam_seat: E('Phòng xông hơi ướt', 'Steam Room', 'stamina', 'steam', 5, 2, { kind: 'spot' }, { exp: 1 }),
   massage_table: E('Bàn massage', 'Massage', 'stamina', 'massageLie', 5, 1, { kind: 'massage', type: 'table' }, { exp: 1 }),

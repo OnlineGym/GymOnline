@@ -478,6 +478,49 @@ export const kickGuild = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
+// Chủ CLB: sửa thông tin, chuyển quyền, giải tán
+async function leaderGuild(req) {
+  const g = await Guild.findOne({ leader: me(req) });
+  if (!g) throw new HttpError(403, 'Chỉ chủ CLB mới làm được việc này');
+  return g;
+}
+
+export const updateGuild = asyncHandler(async (req, res) => {
+  const g = await leaderGuild(req);
+  if (typeof req.body.description === 'string') g.description = filterProfanity(req.body.description.slice(0, 200));
+  if (/^#[0-9a-fA-F]{6}$/.test(req.body.color || '')) g.color = req.body.color;
+  if (typeof req.body.open === 'boolean') g.open = req.body.open;
+  await g.save();
+  notifyRoom(`guild:${g._id}`, 'guild:update', { id: String(g._id) });
+  res.json({ guild: await guildView(g.toObject()) });
+});
+
+export const transferGuild = asyncHandler(async (req, res) => {
+  const g = await leaderGuild(req);
+  const target = oid(req.body.userId);
+  if (String(target) === String(req.userId)) throw new HttpError(400, 'Bạn đang là chủ CLB');
+  if (!g.members.some((m) => String(m) === String(target))) throw new HttpError(400, 'Người này không ở trong CLB');
+  g.leader = target;
+  await g.save();
+  notifyUser(target, 'toast', { type: 'success', text: `👑 Bạn được chuyển quyền chủ CLB ${g.name}` });
+  notifyRoom(`guild:${g._id}`, 'guild:update', { id: String(g._id) });
+  res.json({ guild: await guildView(g.toObject()) });
+});
+
+export const disbandGuild = asyncHandler(async (req, res) => {
+  const g = await leaderGuild(req);
+  const members = g.members.map(String);
+  await Character.updateMany({ guildId: g._id }, { guildId: null });
+  await g.deleteOne();
+  for (const uid of members) {
+    userLeave(uid, `guild:${g._id}`);
+    await setLiveGuild(uid, null);
+    if (uid !== String(req.userId)) notifyUser(uid, 'notify', { kind: 'guild_kicked', guildName: g.name, disbanded: true });
+  }
+  await invalidate('lb:guild');
+  res.json({ ok: true });
+});
+
 // ===================== BÁO CÁO =====================
 export const createReport = asyncHandler(async (req, res) => {
   const target = oid(req.body.userId);

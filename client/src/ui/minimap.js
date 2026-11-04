@@ -81,7 +81,7 @@ export class Minimap {
     this.canvas = canvas;
     this.building = building;
     this.equipment = equipment;
-    this.scale = isMobile() ? 1.4 : 1.9;
+    this.scale = isMobile() ? 1.9 : 2.5;
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     this.cache = new Map();
     this._acc = 0;

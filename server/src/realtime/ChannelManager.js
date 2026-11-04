@@ -98,6 +98,7 @@ export class ChannelManager {
       const now = Date.now();
       for (const c of [...this.channels.values()]) {
         if (this.channels.size > env.channelsPerInstance && !c.count && c.emptySince && now - c.emptySince > 5 * 60000) {
+          for (const m of Object.values(c.music || {})) m.dispose();
           this.channels.delete(c.id);
           console.log(`[channel] Xóa ${c.name} (trống)`);
         }

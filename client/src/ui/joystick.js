@@ -8,7 +8,7 @@ import { h, uiRoot } from './dom.js';
  *  - Cụm nút phải: Tương tác / Chạy / Emote / Chat
  */
 export class MobileControls {
-  constructor(input, { onInteract, onEmote, onChat, onJump }) {
+  constructor(input, { onInteract, onEmote, onChat, onJump, onDive, onPose }) {
     this.input = input;
     const zone = h('div', { class: 'joystick-zone' });
     uiRoot().append(zone);
@@ -36,6 +36,8 @@ export class MobileControls {
     };
     this.chatBtn = h('button', { class: 'm-btn', onclick: onChat }, '💬');
     const emoteBtn = h('button', { class: 'm-btn', onclick: onEmote }, '😊');
+    // ngồi / nằm (bấm lần lượt: ngồi -> nằm -> đứng)
+    const poseBtn = h('button', { class: 'm-btn', onclick: () => onPose?.() }, '🧘');
     // nút nhảy (giữ được cho thách đấu plank: pointerdown/up)
     const jumpBtn = h('button', { class: 'm-btn' }, '⤴️');
     jumpBtn.addEventListener('pointerdown', (e) => {
@@ -43,7 +45,16 @@ export class MobileControls {
       onJump?.(true);
     });
     jumpBtn.addEventListener('pointerup', () => onJump?.(false));
-    this.el = h('div', { class: 'mobile-actions' }, this.interactBtn, jumpBtn, this.runBtn, emoteBtn, this.chatBtn);
+    jumpBtn.addEventListener('pointercancel', () => onJump?.(false));
+    // nút lặn (chỉ hiện khi đang bơi)
+    this.diveBtn = h('button', { class: 'm-btn hidden' }, '⤵️');
+    this.diveBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      onDive?.(true);
+    });
+    this.diveBtn.addEventListener('pointerup', () => onDive?.(false));
+    this.diveBtn.addEventListener('pointercancel', () => onDive?.(false));
+    this.el = h('div', { class: 'mobile-actions' }, this.interactBtn, jumpBtn, this.diveBtn, this.runBtn, poseBtn, emoteBtn, this.chatBtn);
     uiRoot().append(this.el);
   }
 
@@ -51,6 +62,10 @@ export class MobileControls {
     this.interactBtn.classList.toggle('hidden', !label);
     this.interactBtn.classList.toggle('busy', busy);
     if (label) this.interactBtn.textContent = label;
+  }
+
+  setSwimming(on) {
+    this.diveBtn.classList.toggle('hidden', !on);
   }
 
   setUnread(n) {

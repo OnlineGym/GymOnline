@@ -8,7 +8,7 @@ import { Game } from './core/Game.js';
 import { audio } from './core/audio.js';
 import { Building } from './world/Building.js';
 import { EquipmentManager } from './equipment/EquipmentManager.js';
-import { showAuthScreen } from './ui/authScreen.js';
+import { showAuthScreen, showResetScreen } from './ui/authScreen.js';
 import { showCreatorScreen } from './ui/creatorScreen.js';
 import { showChannelScreen } from './ui/channelScreen.js';
 import { toast } from './ui/dom.js';
@@ -25,7 +25,7 @@ if (isMobile()) document.body.classList.add('is-mobile');
 const ctx = createRenderer(document.getElementById('game'), document.getElementById('labels'));
 ctx.clockTime = 0;
 const equipment = new EquipmentManager();
-const building = new Building(ctx.scene, equipment);
+const building = new Building(ctx.scene, equipment, ctx);
 building.setFloor(SPAWN_FLOOR);
 const input = new Input(ctx.renderer.domElement);
 const camera = new ThirdPersonCamera(ctx.camera);
@@ -58,10 +58,32 @@ window.addEventListener('keydown', unlockAudio, { once: true });
 requestAnimationFrame(() => document.getElementById('loading').classList.add('done'));
 setTimeout(() => document.getElementById('loading')?.remove(), 800);
 
+// Link trong email: ?reset=<mã> đặt lại mật khẩu, ?verify=<mã> xác minh email
+async function handleEmailLink() {
+  const params = new URLSearchParams(location.search);
+  const reset = params.get('reset');
+  const verify = params.get('verify');
+  if (!reset && !verify) return;
+  history.replaceState(null, '', location.pathname);
+  if (reset) {
+    const msg = await showResetScreen(reset);
+    if (msg) toast(msg, 'success', 5000);
+    return;
+  }
+  try {
+    toast((await api.verifyEmail(verify)).message, 'success', 5000);
+  } catch (e) {
+    toast(e.message, 'error', 6000);
+  }
+}
+
 async function ensureLogin() {
   if (auth.token) {
     try {
-      return await api.me();
+      const me = await api.me();
+      // Gia hạn phiên: người chơi thường xuyên không bị đăng xuất giữa chừng
+      api.refresh().then((r) => (auth.token = r.token)).catch(() => {});
+      return me;
     } catch (e) {
       if (e.status !== 401) toast(e.message, 'error', 4000);
       auth.token = null;
@@ -73,6 +95,7 @@ async function ensureLogin() {
 
 async function boot() {
   try {
+    await handleEmailLink();
     const me = await ensureLogin();
     let character = me.character;
     if (!character) character = await showCreatorScreen(null, { mode: 'create' });
@@ -89,7 +112,10 @@ async function boot() {
       }
     }
     game = new Game({ ctx, building, equipment, input, camera, net, initData, user: me.user, character });
-    if (import.meta.env.DEV) window.__game = game; // hỗ trợ debug khi phát triển
+    if (import.meta.env.DEV) {
+      window.__game = game; // hỗ trợ debug khi phát triển
+      import('./core/settings.js').then((m) => (window.__updateSettings = m.updateSettings));
+    }
   } catch (e) {
     console.error(e);
     toast(e.message || 'Có lỗi xảy ra', 'error', 5000);

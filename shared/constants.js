@@ -29,15 +29,15 @@ export const FLOORS = [
   { id: 0, key: 'B1', name: 'Tầng hầm – Spa & Bể bơi', color: '#0ea5e9' },
   { id: 1, key: '1', name: 'Tầng 1 – Sảnh & Cardio', color: '#22d3ee' },
   { id: 2, key: '2', name: 'Tầng 2 – Strength', color: '#f43f5e' },
-  { id: 3, key: '3', name: 'Tầng 3 – Studio & Võ thuật', color: '#a78bfa' },
+  { id: 3, key: '3', name: 'Tầng 3 – Studio, Pilates & Võ thuật', color: '#a78bfa' },
   { id: 4, key: 'R', name: 'Sân thượng – Ngoài trời', color: '#84cc16' },
 ];
 export const SPAWN_FLOOR = 1;
-export const SPAWN = { x: 0, z: 24 };
+export const SPAWN = { x: 0, z: 18.5 };
 // Sảnh thang máy (giống nhau mọi tầng) – điểm đến khi đổi tầng
 export const TRANSIT_ARRIVAL = { x: 31, z: 0 };
-export const FLOOR_BOUNDS = { minX: -40, maxX: 40, minZ: -30, maxZ: 30 };
-export const WORLD_BOUNDS = { minX: -42, maxX: 42, minZ: -32, maxZ: 40 }; // gồm sân trước
+export const FLOOR_BOUNDS = { minX: -18, maxX: 40, minZ: -21, maxZ: 21 };
+export const WORLD_BOUNDS = { minX: -20, maxX: 42, minZ: -23, maxZ: 31 }; // gồm sân trước
 
 // Channel / instance
 export const CHANNEL_MAX = 120; // số người tối đa / channel
@@ -75,7 +75,19 @@ export const ANIM_NAMES = [
   'boxBag', 'speedBag', 'padPunch', 'padHold', 'foamRoll', 'yogaFlow', 'swim', 'massageLie', 'massageChair',
   'inbody', 'shopping', 'pushup', 'armWrestle', 'sparIdle', 'sparPunch', 'sparBlock', 'sparDodge', 'sparHit',
   'sparKO', 'handshake', 'highfive', 'fistbump', 'hug', 'pat', 'coupleDance', 'steam', 'elevator', 'climb',
+  'dive', 'tread', 'ride', 'sitFloor', 'lieRest', 'pilatesReformer', 'pilatesRollUp', 'pilatesTeaser',
 ];
+// Phòng có nhạc YouTube chung (tầng 3)
+//  search: tự tìm nhạc theo từ khóa (cần YOUTUBE_API_KEY) | first/playlist: bài mở đầu + danh sách mặc định
+export const MUSIC_ROOMS = {
+  aerobic: { label: '🎵 Nhạc Aerobic', f: 3, x1: -18, x2: -3, z1: 8, z2: 21, search: true },
+  yoga: { label: '🧘 Nhạc Yoga', f: 3, x1: -3, x2: 10, z1: 8, z2: 21, search: false, first: 'PXYs2NskGio', playlist: 'RDPXYs2NskGio', noPanel: true },
+};
+export const musicRoomAt = (f, x, z) => {
+  for (const [id, r] of Object.entries(MUSIC_ROOMS)) if (f === r.f && x > r.x1 && x < r.x2 && z > r.z1 && z < r.z2) return id;
+  return null;
+};
+
 export const ANIM_INDEX = Object.fromEntries(ANIM_NAMES.map((n, i) => [n, i]));
 
 export const EMOTES = ['wave', 'laugh', 'cool', 'tired', 'flex', 'dance', 'cheer', 'bow'];
@@ -98,6 +110,8 @@ export const CHALLENGES = {
   squat: { label: 'Thi squat', icon: '🏋️', min: 2, max: 8, sec: 30, coins: 30, exp: 25 },
   plank: { label: 'Thi plank', icon: '🧱', min: 2, max: 8, sec: 120, coins: 30, exp: 25 },
   race: { label: 'Đua chạy bộ', icon: '🏃', min: 2, max: 8, sec: 90, coins: 50, exp: 35, distance: 300 },
+  raceRow: { label: 'Đua chèo thuyền', icon: '🚣', min: 2, max: 8, sec: 90, coins: 50, exp: 35, distance: 300 },
+  raceBike: { label: 'Đua xe đạp', icon: '🚴', min: 2, max: 8, sec: 90, coins: 50, exp: 35, distance: 300 },
 };
 
 // Vật phẩm cửa hàng (mua bằng coins)
@@ -106,11 +120,18 @@ export const ITEMS = {
   smoothie: { label: 'Sinh tố bơ', icon: '🥑', price: 40, type: 'drink', buff: { kind: 'exp', mult: 1.15, sec: 900 }, desc: '+15% EXP trong 15 phút' },
   juice: { label: 'Nước cam', icon: '🧃', price: 25, type: 'drink', buff: { kind: 'cal', mult: 1.2, sec: 600 }, desc: '+20% calo đốt trong 10 phút' },
   energy: { label: 'Nước tăng lực', icon: '⚡', price: 35, type: 'drink', buff: { kind: 'speed', mult: 1.25, sec: 300 }, desc: 'Chạy nhanh hơn 25% trong 5 phút' },
+  bar: { label: 'Thanh protein', icon: '🍫', price: 30, type: 'drink', buff: { kind: 'exp', mult: 1.1, sec: 1200 }, desc: '+10% EXP trong 20 phút' },
+  coffee: { label: 'Cà phê đen', icon: '☕', price: 20, type: 'drink', buff: { kind: 'speed', mult: 1.15, sec: 300 }, desc: 'Chạy nhanh hơn 15% trong 5 phút' },
   water: { label: 'Nước suối', icon: '💧', price: 5, type: 'drink', buff: { kind: 'stat', mult: 1.1, sec: 300 }, desc: '+10% chỉ số cơ trong 5 phút' },
   headband: { label: 'Băng đô thể thao', icon: '🎽', price: 120, type: 'accessory', desc: 'Phụ kiện đội đầu' },
   cap: { label: 'Mũ lưỡi trai', icon: '🧢', price: 150, type: 'accessory', desc: 'Phụ kiện đội đầu' },
   towel: { label: 'Khăn vắt cổ', icon: '🧣', price: 90, type: 'accessory', desc: 'Khăn tập gym' },
   gloves: { label: 'Găng boxing', icon: '🥊', price: 200, type: 'accessory', desc: 'Găng đỏ cực ngầu' },
+  sunglasses: { label: 'Kính râm', icon: '🕶️', price: 180, type: 'accessory', desc: 'Ngầu cả trong phòng gym' },
+  beanie: { label: 'Mũ len', icon: '🧶', price: 140, type: 'accessory', desc: 'Mũ len có quả bông' },
+  visor: { label: 'Mũ lưỡi trai hở đỉnh', icon: '🎾', price: 130, type: 'accessory', desc: 'Chống chói khi chạy sân thượng' },
+  medal: { label: 'Huy chương vàng', icon: '🏅', price: 400, type: 'accessory', desc: 'Đeo trước ngực' },
+  backpack: { label: 'Balo thể thao', icon: '🎒', price: 260, type: 'accessory', desc: 'Balo đeo sau lưng' },
   crown: { label: 'Vương miện', icon: '👑', price: 1000, type: 'accessory', desc: 'Dành cho nhà vô địch' },
 };
 
@@ -130,6 +151,7 @@ export const ACHIEVEMENTS = {
   spar_win: { label: 'Tay đấm', icon: '🥊', desc: 'Thắng sparring' },
   guild_member: { label: 'Thành viên CLB', icon: '🛡️', desc: 'Tham gia CLB' },
   track_10: { label: 'Chạy bền', icon: '🏁', desc: 'Chạy 10 vòng sân thượng' },
+  streak_7: { label: 'Bền bỉ', icon: '🔥', desc: 'Điểm danh 7 ngày liên tiếp' },
   generous: { label: 'Hào phóng', icon: '🎁', desc: 'Tặng quà cho người khác' },
   golden_hour: { label: 'Giờ vàng', icon: '🌅', desc: 'Tập trong giờ vàng' },
 };
@@ -144,7 +166,7 @@ export function activeEvents(date = new Date()) {
 }
 
 // Võ đài boxing (tầng 3) – nơi diễn ra sparring
-export const BOXING_RING = { f: 3, x: -23, z: -14, size: 7 };
+export const BOXING_RING = { f: 3, x: -8.5, z: -9.5, size: 7 };
 // Tốc độ tối đa server cho phép (m/s) – chống hack tốc độ
 export const MAX_SPEED = 6.8;
 
@@ -152,3 +174,25 @@ export const PARTY_MAX = 5;
 export const PARTY_DAILY_GOAL = 1500; // kcal cả nhóm / ngày
 export const GUILD_MAX = 50;
 export const GUILD_COST = 300;
+
+// Hướng dẫn tân thủ, điểm danh, nhiệm vụ
+export const TUTORIAL_REWARD = 100;
+export const CHECKIN_REWARDS = [20, 30, 40, 50, 60, 80, 150]; // xu theo ngày trong chuỗi 7 ngày
+export const DAILY_QUESTS = {
+  d_workouts3: { label: 'Hoàn thành 3 buổi tập', icon: '💪', kind: 'workouts', goal: 3, coins: 40, exp: 30 },
+  d_workouts5: { label: 'Hoàn thành 5 buổi tập', icon: '🏋️', kind: 'workouts', goal: 5, coins: 70, exp: 50 },
+  d_cal150: { label: 'Đốt 150 kcal', icon: '🔥', kind: 'calories', goal: 150, coins: 40, exp: 30 },
+  d_cal400: { label: 'Đốt 400 kcal', icon: '🔥', kind: 'calories', goal: 400, coins: 80, exp: 60 },
+  d_min10: { label: 'Tập đủ 10 phút', icon: '⏱️', kind: 'minutes', goal: 10, coins: 50, exp: 40 },
+  d_legs: { label: 'Tập chân 2 buổi', icon: '🦵', kind: 'stat_legs', goal: 2, coins: 40, exp: 30 },
+  d_chest: { label: 'Tập ngực 2 buổi', icon: '🫁', kind: 'stat_chest', goal: 2, coins: 40, exp: 30 },
+  d_back: { label: 'Tập lưng 2 buổi', icon: '🔙', kind: 'stat_back', goal: 2, coins: 40, exp: 30 },
+  d_stamina: { label: 'Tập cardio 2 buổi', icon: '🏃', kind: 'stat_stamina', goal: 2, coins: 40, exp: 30 },
+  d_challenge: { label: 'Chơi 1 trận thách đấu', icon: '⚔️', kind: 'challenge', goal: 1, coins: 60, exp: 40 },
+};
+export const WEEKLY_QUESTS = {
+  w_workouts: { label: 'Hoàn thành 25 buổi tập', icon: '📅', kind: 'workouts', goal: 25, coins: 300, exp: 250 },
+  w_cal: { label: 'Đốt 2.000 kcal', icon: '🔥', kind: 'calories', goal: 2000, coins: 300, exp: 250 },
+  w_min: { label: 'Tập đủ 90 phút', icon: '⏱️', kind: 'minutes', goal: 90, coins: 300, exp: 250 },
+  w_win: { label: 'Thắng 5 trận thách đấu', icon: '🏆', kind: 'win', goal: 5, coins: 400, exp: 300 },
+};

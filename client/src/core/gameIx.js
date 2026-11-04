@@ -78,7 +78,7 @@ export class IxController {
     const inRing = d.kind === 'spar' && Math.abs(me.x - BOXING_RING.x) < 4 && Math.abs(me.z - BOXING_RING.z) < 4;
     g.me.root.position.y = inRing ? 0.62 : 0;
     g.me.root.rotation.y = me.ry;
-    const anim = { pair: d.anim, armWrestle: 'armWrestle', spar: 'sparIdle', pushup: 'pushup', squat: 'squat', plank: 'plank', race: 'run' }[d.kind] || 'idle';
+    const anim = { pair: d.anim, armWrestle: 'armWrestle', spar: 'sparIdle', pushup: 'pushup', squat: 'squat', plank: 'plank', race: 'run', raceRow: 'rowing', raceBike: 'bike' }[d.kind] || 'idle';
     this.baseAnim = anim;
     g.me.stopEmote();
     g.me.play(anim);

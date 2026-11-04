@@ -1,7 +1,8 @@
+import { notifHistory, clearNotifHistory, markNotifRead } from './notifications.js';
 import { h, openModal, toast, fmtDate } from './dom.js';
 import { api } from '../network/api.js';
 import { STAT_LABELS, STAT_ICONS, STAT_COLORS } from '../equipment/config.js';
-import { ITEMS, FLOORS, GUILD_COST, ACHIEVEMENTS, PARTY_MAX } from '@shared/constants.js';
+import { ITEMS, FLOORS, GUILD_COST, ACHIEVEMENTS, PARTY_MAX, CHALLENGES } from '@shared/constants.js';
 
 const loading = () => h('div', { class: 'muted', style: { padding: '14px', textAlign: 'center' } }, 'Đang tải...');
 const err = (e) => h('div', { class: 'error-text' }, e.message);
@@ -206,6 +207,50 @@ async function renderGuild(game, el, refresh) {
         ),
         h('p', { class: 'muted', style: { fontSize: '12px' } }, 'Chat CLB: chọn tab "CLB" trong khung chat.')
       );
+      if (isLeader) {
+        const desc = h('input', { class: 'input', maxlength: 200, value: guild.description || '', placeholder: 'Mô tả CLB' });
+        const color = h('input', { type: 'color', value: guild.color, class: 'swatch-custom' });
+        const open = h('input', { type: 'checkbox' });
+        open.checked = guild.open !== false;
+        el.append(
+          h(
+            'details',
+            { class: 'trade-box' },
+            h('summary', {}, '⚙️ Quản lý CLB'),
+            h(
+              'form',
+              {
+                class: 'guild-form',
+                onsubmit: async (e) => {
+                  e.preventDefault();
+                  try {
+                    await api.guildUpdate({ description: desc.value.trim(), color: color.value, open: open.checked });
+                    toast('Đã lưu thông tin CLB', 'success');
+                    refresh();
+                  } catch (ex) {
+                    toast(ex.message, 'error');
+                  }
+                },
+              },
+              desc,
+              h('label', { class: 'muted' }, 'Màu ', color),
+              h('label', { class: 'muted' }, open, ' Ai cũng có thể tham gia'),
+              h('button', { class: 'btn', type: 'submit' }, 'Lưu')
+            ),
+            h('div', { style: { marginTop: '10px' } }, mini('💥 Giải tán CLB', async () => {
+              if (!confirm(`Giải tán CLB ${guild.name}? Mọi thành viên sẽ rời CLB và không thể khôi phục.`)) return;
+              try {
+                await api.guildDisband();
+                game.onGuildChange(null);
+                toast('Đã giải tán CLB', 'success');
+                refresh();
+              } catch (ex) {
+                toast(ex.message, 'error');
+              }
+            }, 'danger'))
+          )
+        );
+      }
       for (const mb of guild.members) {
         el.append(
           h(
@@ -213,10 +258,19 @@ async function renderGuild(game, el, refresh) {
             { class: 'list-row' },
             h('div', {}, h('span', { class: `dot ${mb.online ? '' : 'off'}` }), ' ', h('b', {}, `${mb.userId === guild.leader ? '👑 ' : ''}${mb.name}`), ' ', small(`Lv.${mb.level}`)),
             isLeader && mb.userId !== game.user.id
-              ? mini('Mời ra', async () => {
-                  await api.guildKick(mb.userId).catch((e) => toast(e.message, 'error'));
-                  refresh();
-                })
+              ? h(
+                  'div',
+                  {},
+                  mini('Mời ra', async () => {
+                    await api.guildKick(mb.userId).catch((e) => toast(e.message, 'error'));
+                    refresh();
+                  }),
+                  mini('👑 Chuyển quyền', async () => {
+                    if (!confirm(`Chuyển quyền chủ CLB cho ${mb.name}?`)) return;
+                    await api.guildTransfer(mb.userId).catch((e) => toast(e.message, 'error'));
+                    refresh();
+                  })
+                )
               : null
           )
         );
@@ -386,13 +440,16 @@ export function openGiftDialog(game, target) {
   const item = h('select', { class: 'input' }, h('option', { value: '' }, '— Không tặng vật phẩm —'), inv.map((i) => h('option', { value: i.item }, `${ITEMS[i.item]?.icon} ${ITEMS[i.item]?.label} (có ${i.qty})`)));
   const qty = h('input', { class: 'input', type: 'number', min: 1, max: 10, value: 1 });
   const msg = h('input', { class: 'input', maxlength: 100, placeholder: 'Lời nhắn (không bắt buộc)' });
+  const wantCoins = h('input', { class: 'input', type: 'number', min: 0, max: 10000, value: 0 });
+  const wantItem = h('select', { class: 'input' }, h('option', { value: '' }, '— Không yêu cầu vật phẩm —'), Object.entries(ITEMS).map(([k, v]) => h('option', { value: k }, `${v.icon} ${v.label}`)));
+  const wantQty = h('input', { class: 'input', type: 'number', min: 1, max: 10, value: 1 });
   const body = h(
     'form',
     {
       onsubmit: async (e) => {
         e.preventDefault();
         try {
-          const r = await api.sendGift({ to: target.userId, coins: Number(coins.value) || 0, item: item.value || undefined, qty: item.value ? Number(qty.value) || 1 : undefined, message: msg.value });
+          const r = await api.sendGift({ to: target.userId, coins: Number(coins.value) || 0, item: item.value || undefined, qty: item.value ? Number(qty.value) || 1 : undefined, wantCoins: Number(wantCoins.value) || 0, wantItem: wantItem.value || undefined, wantQty: wantItem.value ? Number(wantQty.value) || 1 : undefined, message: msg.value });
           game.onCharacter(r.character);
           toast(`🎁 Đã gửi quà cho ${target.name}. Chờ họ xác nhận!`, 'success');
           m.close();
@@ -406,7 +463,16 @@ export function openGiftDialog(game, target) {
     h('div', { class: 'field' }, h('label', {}, 'Vật phẩm'), item),
     h('div', { class: 'field' }, h('label', {}, 'Số lượng'), qty),
     h('div', { class: 'field' }, h('label', {}, 'Lời nhắn'), msg),
-    h('button', { class: 'btn', type: 'submit', style: { width: '100%' } }, '🎁 Gửi quà')
+    h(
+      'details',
+      { class: 'trade-box' },
+      h('summary', {}, '🔄 Đổi lấy thứ gì đó từ họ (không bắt buộc)'),
+      h('p', { class: 'muted', style: { fontSize: '12px' } }, `${target.name} phải đưa đủ những thứ này thì mới nhận được món của bạn.`),
+      h('div', { class: 'field' }, h('label', {}, 'Xu yêu cầu'), wantCoins),
+      h('div', { class: 'field' }, h('label', {}, 'Vật phẩm yêu cầu'), wantItem),
+      h('div', { class: 'field' }, h('label', {}, 'Số lượng'), wantQty)
+    ),
+    h('button', { class: 'btn', type: 'submit', style: { width: '100%' } }, '🎁 Gửi')
   );
   const m = openModal(`🎁 Tặng quà cho ${target.name}`, body, { width: 420 });
 }
@@ -469,4 +535,102 @@ export async function openAchievements() {
     body.innerHTML = '';
     body.append(err(e));
   }
+}
+
+// ============== LỊCH SỬ THÁCH ĐẤU ==============
+export async function openMatches() {
+  const body = h('div', {}, loading());
+  openModal('⚔️ Lịch sử thách đấu', body, { width: 560 });
+  try {
+    const { matches } = await api.matches();
+    body.innerHTML = '';
+    if (!matches.length) return body.append(h('p', { class: 'muted' }, 'Bạn chưa đấu trận nào. Bấm vào người chơi khác rồi chọn Thách đấu nhé!'));
+    for (const m of matches) {
+      const def = CHALLENGES[m.kind] || { icon: '⚔️', label: m.kind };
+      const rows = [...m.participants].sort((a, b) => a.rank - b.rank);
+      body.append(
+        h(
+          'div',
+          { class: 'list-row' },
+          h('div', {}, h('b', {}, `${def.icon} ${def.label}`), ' ', small(fmtDate(m.at)), h('div', { class: 'muted', style: { fontSize: '13px' } }, rows.map((p) => `${p.rank}. ${p.name}: ${Math.round(p.score * 10) / 10}`).join(' • '))),
+          h('span', { class: `level-badge${m.win ? '' : ' warn'}` }, m.win ? 'Thắng' : 'Thua')
+        )
+      );
+    }
+  } catch (e) {
+    body.innerHTML = '';
+    body.append(err(e));
+  }
+  return undefined;
+}
+
+// ============== TRUNG TÂM THÔNG BÁO ==============
+export async function openNotifications(game) {
+  markNotifRead();
+  const body = h('div', {}, loading());
+  openModal('🔔 Thông báo', body, { width: 520 });
+  const render = async () => {
+    const [gifts, friends] = await Promise.all([api.pendingGifts().catch(() => ({ gifts: [] })), api.friends().catch(() => ({ incoming: [] }))]);
+    body.innerHTML = '';
+    if (friends.incoming?.length || gifts.gifts.length) body.append(h('h4', {}, 'Đang chờ bạn trả lời'));
+    for (const f of friends.incoming || []) {
+      body.append(
+        h(
+          'div',
+          { class: 'list-row' },
+          h('div', {}, '🤝 ', h('b', {}, f.name), ' muốn kết bạn'),
+          h(
+            'div',
+            {},
+            mini('Đồng ý', async () => {
+              await api.friendAccept(f.userId).catch((e) => toast(e.message, 'error'));
+              render();
+            }, ''),
+            mini('Từ chối', async () => {
+              await api.friendRemove(f.userId).catch((e) => toast(e.message, 'error'));
+              render();
+            })
+          )
+        )
+      );
+    }
+    for (const g of gifts.gifts) {
+      const name = (k) => ITEMS[k]?.label || k;
+      const give = [g.coins ? `🪙 ${g.coins} xu` : null, g.item ? `${g.qty}x ${name(g.item)}` : null].filter(Boolean).join(' + ');
+      const want = [g.wantCoins ? `🪙 ${g.wantCoins} xu` : null, g.wantItem ? `${g.wantQty}x ${name(g.wantItem)}` : null].filter(Boolean).join(' + ');
+      body.append(
+        h(
+          'div',
+          { class: 'list-row' },
+          h('div', {}, want ? '🔄 ' : '🎁 ', h('b', {}, g.from), want ? ` đề nghị đổi ${give} lấy ${want} của bạn` : ` tặng bạn ${give}`, g.message ? h('div', { class: 'muted', style: { fontSize: '13px' } }, g.message) : null),
+          h(
+            'div',
+            {},
+            mini(want ? 'Đồng ý đổi' : 'Nhận', async () => {
+              try {
+                const r = await api.acceptGift(g.id);
+                game.onCharacter(r.character);
+              } catch (e) {
+                toast(e.message, 'error');
+              }
+              render();
+            }, ''),
+            mini('Từ chối', async () => {
+              await api.declineGift(g.id).catch((e) => toast(e.message, 'error'));
+              render();
+            })
+          )
+        )
+      );
+    }
+    const list = notifHistory();
+    body.append(h('h4', {}, 'Gần đây'));
+    if (!list.length) body.append(h('p', { class: 'muted' }, 'Chưa có thông báo nào.'));
+    for (const n of list) body.append(h('div', { class: 'list-row' }, h('div', {}, `${n.icon} `, h('b', {}, n.title), n.text ? h('div', { class: 'muted', style: { fontSize: '13px' } }, n.text) : null), small(fmtDate(n.at))));
+    if (list.length) body.append(h('div', { style: { marginTop: '10px' } }, mini('Xóa lịch sử', () => (clearNotifHistory(), render()))));
+  };
+  render().catch((e) => {
+    body.innerHTML = '';
+    body.append(err(e));
+  });
 }

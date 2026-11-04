@@ -1,3 +1,4 @@
+import { TUTORIAL_REWARD } from '../../../shared/constants.js';
 import Character from '../models/Character.js';
 import { HttpError, asyncHandler } from '../middleware/errorHandler.js';
 import { filterProfanity } from '../utils/profanity.js';
@@ -34,4 +35,12 @@ export const upsertCharacter = asyncHandler(async (req, res) => {
 
   broadcastAppearance(req.userId, character.appearance());
   res.status(created ? 201 : 200).json({ character: character.toPublic() });
+});
+
+// Hoàn thành/bỏ qua hướng dẫn tân thủ: chỉ thưởng 1 lần và chỉ khi làm hết các bước
+export const finishTutorial = asyncHandler(async (req, res) => {
+  const coins = req.body?.finished ? TUTORIAL_REWARD : 0;
+  const c = await Character.findOneAndUpdate({ userId: req.userId, tutorialDone: { $ne: true } }, { $set: { tutorialDone: true }, $inc: { coins } }, { new: true });
+  if (!c) return res.json({ ok: true, coins: 0 });
+  res.json({ ok: true, coins, character: c.toPublic() });
 });

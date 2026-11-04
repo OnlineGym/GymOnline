@@ -10,6 +10,8 @@ import leaderboardRoutes from './routes/leaderboard.js';
 import chatRoutes from './routes/chat.js';
 import socialRoutes from './routes/social.js';
 import economyRoutes from './routes/economy.js';
+import adminRoutes from './routes/admin.js';
+import dailyRoutes from './routes/daily.js';
 import { requireAuth } from './middleware/auth.js';
 import { getChannels, metrics } from './controllers/channelController.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
@@ -43,6 +45,8 @@ export function createApp() {
   app.use('/api/workouts', workoutRoutes);
   app.use('/api/leaderboard', leaderboardRoutes);
   app.use('/api/chat', chatRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/daily', dailyRoutes);
   app.use('/api', economyRoutes);
   app.use('/api', socialRoutes);
 

@@ -27,6 +27,17 @@ async function takeCoinsAtomic(userId, coins) {
   return r.modifiedCount === 1;
 }
 
+// Đưa hết phụ kiện đang đeo cho người khác thì phải tháo ra
+async function unequipIfGone(userId, item) {
+  if (!item || ITEMS[item]?.type !== 'accessory') return;
+  const c = await Character.findOne({ userId });
+  if (c?.accessory === item && !c.hasItem(item)) {
+    c.accessory = null;
+    await c.save();
+    broadcastAppearance(userId, c.appearance());
+  }
+}
+
 const charOf = async (userId) => (await Character.findOne({ userId })).toPublic();
 
 // ===== Cửa hàng =====
@@ -84,6 +95,10 @@ export const sendGift = asyncHandler(async (req, res) => {
   if (!coins && !item) throw new HttpError(400, 'Chọn xu hoặc vật phẩm để tặng');
   if (coins > 10000) throw new HttpError(400, 'Tối đa 10.000 xu / lần');
   if (item && !ITEMS[item]) throw new HttpError(400, 'Vật phẩm không tồn tại');
+  const wantCoins = Math.max(0, Math.min(10000, Math.floor(Number(req.body.wantCoins) || 0)));
+  const wantItem = req.body.wantItem || null;
+  const wantQty = wantItem ? Math.max(1, Math.min(10, Math.floor(Number(req.body.wantQty) || 1))) : 0;
+  if (wantItem && !ITEMS[wantItem]) throw new HttpError(400, 'Vật phẩm yêu cầu không tồn tại');
   const blocked = await Friendship.exists({ status: 'blocked', $or: [{ requester: uid, recipient: to }, { requester: to, recipient: uid }] });
   if (blocked) throw new HttpError(403, 'Không thể tặng quà cho người này');
   if (!(await Character.exists({ userId: to }))) throw new HttpError(404, 'Không tìm thấy người nhận');
@@ -104,15 +119,19 @@ export const sendGift = asyncHandler(async (req, res) => {
     item,
     qty,
     message: String(req.body.message || '').slice(0, 100),
+    wantCoins,
+    wantItem,
+    wantQty,
   });
-  notifyUser(to, 'notify', { kind: 'gift', id: String(tx._id), from: { userId: String(uid), name: sender.displayName }, coins, item, qty, message: tx.message });
-  await award(uid, 'generous');
+  await unequipIfGone(uid, item);
+  notifyUser(to, 'notify', { kind: 'gift', id: String(tx._id), from: { userId: String(uid), name: sender.displayName }, coins, item, qty, message: tx.message, wantCoins, wantItem, wantQty });
+  if (!wantCoins && !wantItem) await award(uid, 'generous');
   res.status(201).json({ ok: true, character: await charOf(uid) });
 });
 
 export const pendingGifts = asyncHandler(async (req, res) => {
   const docs = await Transaction.find({ to: me(req), status: 'pending' }).sort({ createdAt: -1 }).lean();
-  res.json({ gifts: docs.map((d) => ({ id: String(d._id), from: d.fromName, coins: d.coins, item: d.item, qty: d.qty, message: d.message, at: d.createdAt })) });
+  res.json({ gifts: docs.map((d) => ({ id: String(d._id), from: d.fromName, coins: d.coins, item: d.item, qty: d.qty, message: d.message, wantCoins: d.wantCoins || 0, wantItem: d.wantItem || null, wantQty: d.wantQty || 0, at: d.createdAt })) });
 });
 
 export const respondGift = (accept) =>
@@ -125,6 +144,22 @@ export const respondGift = (accept) =>
       { new: true }
     );
     if (!tx) throw new HttpError(404, 'Quà không còn hiệu lực');
+    // Trao đổi: trừ phần người nhận phải đưa trước; thiếu thì trả trạng thái về chờ, không ai mất gì
+    if (accept && (tx.wantCoins || tx.wantItem)) {
+      const uid = me(req);
+      if (tx.wantCoins && !(await takeCoinsAtomic(uid, tx.wantCoins))) {
+        await Transaction.updateOne({ _id: tx._id }, { status: 'pending' });
+        throw new HttpError(400, 'Bạn không đủ xu để đổi');
+      }
+      if (tx.wantItem && !(await takeItemAtomic(uid, tx.wantItem, tx.wantQty))) {
+        if (tx.wantCoins) await Character.updateOne({ userId: uid }, { $inc: { coins: tx.wantCoins } });
+        await Transaction.updateOne({ _id: tx._id }, { status: 'pending' });
+        throw new HttpError(400, 'Bạn không đủ vật phẩm để đổi');
+      }
+      await unequipIfGone(uid, tx.wantItem);
+      if (tx.wantCoins) await Character.updateOne({ userId: tx.from }, { $inc: { coins: tx.wantCoins } });
+      if (tx.wantItem) await addItemAtomic(tx.from, tx.wantItem, tx.wantQty);
+    }
     const receiver = accept ? tx.to : tx.from;
     if (tx.coins) await Character.updateOne({ userId: receiver }, { $inc: { coins: tx.coins } });
     if (tx.item) await addItemAtomic(receiver, tx.item, tx.qty);

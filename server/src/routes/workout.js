@@ -16,6 +16,8 @@ router.post(
     reps: rules.number({ min: 0, max: 10000, label: 'Số rep' }),
     slot: rules.number({ min: 0, max: 3, optional: true, label: 'Vị trí' }),
     sync: rules.number({ min: 0, max: 1, optional: true, label: 'Điểm đồng bộ' }),
+    form: rules.number({ min: 0, max: 1, optional: true, label: 'Độ chuẩn động tác' }),
+    active: rules.number({ min: 0, max: 3600, optional: true, label: 'Thời gian tập thật' }),
   }),
   createWorkout
 );
